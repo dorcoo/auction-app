@@ -20,12 +20,8 @@ import {
 } from "firebase/firestore";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// 👇 [수정할 곳 1] 본인의 지메일 주소를 따옴표 안에 적어주세요!
-// 예시: const ALLOWED_EMAIL = "honggildong@gmail.com";
-const ALLOWED_EMAIL = "cjg6577@gmail.com"; 
-
-// 👇 [수정할 곳 2] AI 기능을 쓰려면 Gemini API 키를 넣어주세요 (선택사항)
-const apiKey = "AIzaSyB2Ni95d2qjT8VjA0d4-Hll4y-SswvwFf4"; 
+// 👇 [수정할 곳] AI 기능을 쓰려면 Gemini API 키를 넣어주세요 (선택사항)
+const apiKey = ""; 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 // --- Firebase 설정 (이미 채워드렸습니다) ---
@@ -92,13 +88,7 @@ export default function AuctionManager() {
       setLoading(false);
       
       if (currentUser) {
-        // 이메일 보안 체크
-        if (ALLOWED_EMAIL && !currentUser.isAnonymous && currentUser.email !== ALLOWED_EMAIL) {
-          setAuthError("허용되지 않은 사용자입니다. 설정된 이메일로 로그인해주세요.");
-          signOut(auth);
-          setUser(null);
-          return;
-        }
+        // 보안 체크 로직 제거됨: 누구나 로그인 가능
         setUser(currentUser);
         setAuthError(null);
       } else {
@@ -174,9 +164,9 @@ export default function AuctionManager() {
           <div className="bg-indigo-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
             <Lock className="w-8 h-8 text-indigo-600" />
           </div>
-          <h1 className="text-xl font-bold text-slate-900 mb-2">접근 제한 구역</h1>
+          <h1 className="text-xl font-bold text-slate-900 mb-2">경매 관리자 로그인</h1>
           <p className="text-slate-500 mb-6 text-sm">
-            이 앱은 개인 전용입니다.<br/>허용된 구글 계정으로 로그인해주세요.
+            데이터를 안전하게 저장하기 위해<br/>구글 계정으로 로그인해주세요.
           </p>
           
           {authError && (
