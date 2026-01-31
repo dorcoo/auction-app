@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Gavel, Home, Calculator, ClipboardList, Calendar, AlertTriangle, 
   CheckCircle2, Plus, Trash2, Save, ArrowLeft, Search, ExternalLink, 
-  MapPin, Sparkles, Bot, LogIn, LogOut, Lock, User, FileSearch, Download
+  MapPin, Sparkles, Bot, LogIn, LogOut, Lock, User, FileSearch, Download, TrendingUp,
+  Scale, Briefcase
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { 
@@ -73,8 +74,7 @@ const callGemini = async (prompt, systemInstruction = "") => {
 // --- 도움 함수들 ---
 const formatCurrency = (value) => {
   if (!value) return '0';
-  // 문자열인 경우 숫자만 추출하여 포맷팅 시도
-  const num = typeof value === 'string' ? parseInt(value.replace(/[^0-9]/g, ''), 10) : value;
+  const num = typeof value === 'string' ? parseInt(value.replace(/[^0-9-]/g, ''), 10) : value;
   return isNaN(num) ? value : new Intl.NumberFormat('ko-KR').format(num);
 };
 
@@ -85,16 +85,27 @@ const getDday = (targetDate) => {
   return Math.ceil((target - today) / (1000 * 60 * 60 * 24));
 };
 
+// 종합소득세율 계산 (2024년 기준)
+const calculateIncomeTax = (taxBase) => {
+  if (taxBase <= 14000000) return taxBase * 0.06;
+  if (taxBase <= 50000000) return taxBase * 0.15 - 1260000;
+  if (taxBase <= 88000000) return taxBase * 0.24 - 5760000;
+  if (taxBase <= 150000000) return taxBase * 0.35 - 15440000;
+  if (taxBase <= 300000000) return taxBase * 0.38 - 19940000;
+  if (taxBase <= 500000000) return taxBase * 0.40 - 25940000;
+  if (taxBase <= 1000000000) return taxBase * 0.42 - 35940000;
+  return taxBase * 0.45 - 65940000;
+};
+
 // --- 메인 컴포넌트 ---
 export default function AuctionManager() {
   const [user, setUser] = useState(null);
   const [items, setItems] = useState([]);
-  const [view, setView] = useState('dashboard'); // dashboard, list, detail, add, analysis
+  const [view, setView] = useState('dashboard');
   const [selectedItem, setSelectedItem] = useState(null);
   const [loading, setLoading] = useState(true);
   const [authError, setAuthError] = useState(null);
 
-  // 인증 및 데이터 불러오기
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setLoading(false);
@@ -125,7 +136,6 @@ export default function AuctionManager() {
     return () => unsubscribe();
   }, [user]);
 
-  // 액션 함수들
   const handleGoogleLogin = async () => {
     try { await signInWithPopup(auth, new GoogleAuthProvider()); } 
     catch (error) { 
@@ -146,7 +156,14 @@ export default function AuctionManager() {
         ...newItem, createdAt: serverTimestamp(), status: '관심',
         checklists: { leak: false, sunlight: false, parking: false, managementFee: false },
         rights: { malsoDate: '', tenantMoveInDate: '', tenantFixDate: '', tenantDeposit: '', isDangerous: false },
-        financials: { expectedBidPrice: '', acquisitionTaxRate: 1.1, repairCost: '', movingCost: '', sellPrice: '', monthlyRent: '', deposit: '' },
+        financials: { 
+          expectedBidPrice: '', acquisitionTaxRate: 1.1, legalCost: '', repairCost: '', movingCost: '', 
+          loanAmount: '', loanRate: 4.5, 
+          sellPrice: '', monthlyRent: '', deposit: '',
+          sellerType: 'individual', // individual(개인), business(매매사업자)
+          isSmallSize: true, // 85m2 이하 여부
+          holdingPeriod: 1 // 보유기간 (1: 1년미만, 2: 2년미만, 3: 2년이상)
+        },
         aiFieldAnalysis: '', aiStrategy: ''
       });
       setView('list');
@@ -165,14 +182,13 @@ export default function AuctionManager() {
   };
 
   const handleImportParsedItem = (parsedItem) => {
-    // 파싱된 데이터를 DB 저장 포맷으로 변환
     const newItem = {
       caseNumber: parsedItem.caseNo,
       type: parsedItem.usage || '기타',
       address: parsedItem.address,
       appraisalPrice: parsedItem.appraisalPrice.replace(/[^0-9]/g, ''),
       minPrice: parsedItem.minPrice.split(' ')[0].replace(/[^0-9]/g, ''),
-      biddingDate: '', // 파싱 데이터에 날짜가 명확하지 않으면 공란
+      biddingDate: '',
       fieldNote: `[가져온 데이터]\n${parsedItem.details}\n${parsedItem.remark}`,
     };
     handleAddItem(newItem);
@@ -196,7 +212,7 @@ export default function AuctionManager() {
   );
 }
 
-// --- 로그인 화면 컴포넌트 ---
+// --- 로그인 화면 ---
 function LoginScreen({ authError, onGoogleLogin, onGuestLogin }) {
   return (
     <div className="flex flex-col items-center justify-center h-screen bg-slate-100 p-4">
@@ -247,7 +263,7 @@ function SidebarItem({ icon: Icon, label, active, onClick }) {
   return <button onClick={onClick} className={`w-full flex items-center justify-center lg:justify-start p-3 rounded-xl transition-colors ${active ? 'bg-indigo-50 text-indigo-600 font-bold' : 'text-slate-500 hover:bg-slate-50'}`}><Icon className="w-6 h-6" /> <span className="hidden lg:block ml-3 font-medium">{label}</span></button>;
 }
 
-// --- AI 간편 분석 뷰 (NEW) ---
+// --- AI 간편 분석 뷰 ---
 function QuickAnalysisView({ onImport }) {
   const [htmlInput, setHtmlInput] = useState("");
   const [parsedItems, setParsedItems] = useState([]);
@@ -266,7 +282,6 @@ function QuickAnalysisView({ onImport }) {
       rows.forEach((row) => {
         const caseTd = row.querySelector('[data-col_id="printCsNo"]');
         const addressTd = row.querySelector('[data-col_id="printSt"]');
-        
         if (caseTd && caseTd.textContent.trim() !== "") {
           currentItem = {
             id: Math.random().toString(36).substr(2, 9),
@@ -293,8 +308,7 @@ function QuickAnalysisView({ onImport }) {
           if (status) currentItem.status = status;
         }
       });
-
-      if (items.length === 0) return alert("경매 데이터를 찾지 못했습니다. 올바른 HTML 소스인지 확인해주세요.");
+      if (items.length === 0) return alert("경매 데이터를 찾지 못했습니다.");
       setParsedItems(items);
     } catch (err) { alert("분석 중 오류 발생: " + err.message); }
   };
@@ -311,7 +325,6 @@ function QuickAnalysisView({ onImport }) {
     setIsAnalyzing(true);
     const prompt = `물건: ${item.address} (용도: ${item.usage}, 상세: ${item.details})\n\n이 경매 물건의 입찰을 고민하는 사람을 위한 '맞춤형 체크리스트' 5가지를 작성해줘.`;
     const res = await callGemini(prompt);
-    // 상태 업데이트: 해당 아이템에 체크리스트 추가
     setParsedItems(prev => prev.map(p => p.id === item.id ? { ...p, aiChecklist: res } : p));
     setIsAnalyzing(false);
   };
@@ -337,7 +350,6 @@ function QuickAnalysisView({ onImport }) {
           <p className="text-slate-500 text-sm mt-1">HTML 소스를 붙여넣으면 Gemini가 자동으로 분석합니다.</p>
         </div>
       </div>
-
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 mb-8">
         <textarea 
           value={htmlInput} onChange={e => setHtmlInput(e.target.value)}
@@ -348,14 +360,12 @@ function QuickAnalysisView({ onImport }) {
           <Search className="w-5 h-5"/> 데이터 분석 및 리스트 생성
         </button>
       </div>
-
       {parsedItems.length > 0 && (
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="flex justify-between items-center mb-6 bg-slate-900 text-white p-4 rounded-xl shadow-lg">
             <div className="font-bold flex items-center gap-2"><div className="bg-indigo-500 p-1.5 rounded-lg"><ClipboardList className="w-4 h-4"/></div> 총 {parsedItems.length}건 분석됨</div>
             <button onClick={analyzeAllAI} disabled={isAnalyzing} className="bg-white text-slate-900 px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-100 transition-colors flex items-center gap-2">{isAnalyzing ? '분석 중...' : '✨ AI 전체 종합 분석'}</button>
           </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {parsedItems.map(item => (
               <div key={item.id} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col">
@@ -385,8 +395,6 @@ function QuickAnalysisView({ onImport }) {
           </div>
         </div>
       )}
-
-      {/* AI 모달 */}
       {aiModal.show && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
           <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl overflow-hidden">
@@ -403,7 +411,7 @@ function QuickAnalysisView({ onImport }) {
   );
 }
 
-// --- 기존 컴포넌트들 (대시보드, 리스트 등) 유지 ---
+// --- 기본 컴포넌트들 ---
 function Dashboard({ items, onViewChange, onItemSelect }) {
   const stats = useMemo(() => ({ total: items.length, interested: items.filter(i => i.status === '관심').length, analyzing: items.filter(i => i.status === '권리분석').length, field: items.filter(i => i.status === '임장중').length, bidding: items.filter(i => i.status === '입찰준비').length }), [items]);
   const upcoming = items.filter(i => i.biddingDate && getDday(i.biddingDate) >= 0).sort((a, b) => new Date(a.biddingDate) - new Date(b.biddingDate)).slice(0, 5);
@@ -438,7 +446,227 @@ function ItemDetail({ item, onBack, onUpdate, onDelete }) {
 function InfoTab({ item, onChange, onSave }) { return <div className="space-y-6"><div className="grid grid-cols-2 gap-4"><InputGroup label="사건번호" value={item.caseNumber} onChange={v=>onChange('caseNumber',v)}/><InputGroup label="종류" value={item.type} onChange={v=>onChange('type',v)} type="select" options={['아파트','빌라','오피스텔','상가']}/></div><InputGroup label="주소" value={item.address} onChange={v=>onChange('address',v)}/><div className="grid grid-cols-2 gap-4"><InputGroup label="감정가" type="number" value={item.appraisalPrice} onChange={v=>onChange('appraisalPrice',v)}/><InputGroup label="최저가" type="number" value={item.minPrice} onChange={v=>onChange('minPrice',v)}/></div><InputGroup label="입찰일" type="date" value={item.biddingDate} onChange={v=>onChange('biddingDate',v)}/><div className="flex justify-end pt-4"><SaveButton onClick={onSave}/></div></div>; }
 function RightsTab({ item, onChange, onSave }) { const r=item.rights||{}; return <div className="space-y-6"><div className="grid grid-cols-2 gap-6"><InputGroup label="말소기준" type="date" value={r.malsoDate} onChange={v=>onChange('malsoDate',v,'rights')}/><div className="space-y-2"><InputGroup label="전입일" type="date" value={r.tenantMoveInDate} onChange={v=>onChange('tenantMoveInDate',v,'rights')}/><InputGroup label="보증금" type="number" value={r.tenantDeposit} onChange={v=>onChange('tenantDeposit',v,'rights')}/></div></div><div className="flex justify-end pt-4"><SaveButton onClick={onSave}/></div></div>; }
 function FieldTab({ item, onChange, onSave }) { const c=item.checklists||{}; const [loading,setLoading]=useState(false); const handleAi=async()=>{setLoading(true);const res=await callGemini(`임장 분석: ${JSON.stringify(c)}, 메모: ${item.fieldNote}`);onChange('aiFieldAnalysis',res);setLoading(false);}; return <div className="space-y-6"><div className="grid grid-cols-2 gap-4"><div><h3 className="font-bold mb-2">체크리스트</h3>{['leak','sunlight','parking','managementFee'].map(k=><div key={k} onClick={()=>onChange(k,!c[k],'checklists')} className={`p-3 border rounded mb-2 cursor-pointer ${c[k]?'bg-indigo-50':''}`}>{k}</div>)}</div><textarea className="w-full h-40 border rounded p-2" value={item.fieldNote||''} onChange={e=>onChange('fieldNote',e.target.value)}/></div><div className="bg-indigo-50 p-4 rounded"><button onClick={handleAi} disabled={loading} className="bg-indigo-600 text-white px-2 py-1 rounded text-xs mb-2">AI 분석</button><p className="text-sm">{item.aiFieldAnalysis}</p></div><div className="flex justify-end pt-4"><SaveButton onClick={onSave}/></div></div>; }
-function CalcTab({ item, onChange, onSave }) { const f=item.financials||{}; const [loading,setLoading]=useState(false); const handleAi=async()=>{setLoading(true);const res=await callGemini(`수익률 분석: ${JSON.stringify(f)}`);onChange('aiStrategy',res);setLoading(false);}; return <div className="space-y-6"><div className="grid grid-cols-3 gap-4"><InputGroup label="낙찰가" type="number" value={f.expectedBidPrice} onChange={v=>onChange('expectedBidPrice',v,'financials')}/><InputGroup label="매도가" type="number" value={f.sellPrice} onChange={v=>onChange('sellPrice',v,'financials')}/><InputGroup label="월세" type="number" value={f.monthlyRent} onChange={v=>onChange('monthlyRent',v,'financials')}/></div><div className="bg-slate-100 p-4 rounded"><button onClick={handleAi} disabled={loading} className="bg-slate-800 text-white px-2 py-1 rounded text-xs mb-2">AI 전략</button><p className="text-sm">{item.aiStrategy}</p></div><div className="flex justify-end pt-4"><SaveButton onClick={onSave}/></div></div>; }
+
+// --- [강화된 수익률 계산기] ---
+function CalcTab({ item, onChange, onSave }) {
+  const f = item.financials || {};
+  const [loading, setLoading] = useState(false);
+
+  // 1. 취득 비용 계산
+  const bidPrice = Number(f.expectedBidPrice) || 0;
+  const acqTaxRate = Number(f.acquisitionTaxRate) || 1.1;
+  const acqTax = bidPrice * (acqTaxRate / 100);
+  const legalCost = Number(f.legalCost) || 0;
+  const repairCost = Number(f.repairCost) || 0;
+  const movingCost = Number(f.movingCost) || 0;
+  const totalCost = bidPrice + acqTax + legalCost + repairCost + movingCost;
+
+  // 2. 대출/임대 (레버리지)
+  const loanAmount = Number(f.loanAmount) || 0;
+  const loanRate = Number(f.loanRate) || 4.5;
+  const monthlyInterest = (loanAmount * (loanRate / 100)) / 12;
+  const deposit = Number(f.deposit) || 0;
+  const monthlyRent = Number(f.monthlyRent) || 0;
+  const realInvestment = totalCost - loanAmount - deposit; // 실투자금
+
+  // 3. 수익률 계산
+  const monthlyNet = monthlyRent - monthlyInterest; // 월 순수익
+  const yieldRate = realInvestment > 0 ? (monthlyNet * 12 / realInvestment) * 100 : 0;
+
+  // 4. 매도 시나리오 (기본값)
+  const sellPrice = Number(f.sellPrice) || 0;
+  const capitalGainsTax = Number(f.capitalGainsTax) || 0; // This is usually auto-calculated, but kept here for legacy compatibility if needed
+  
+  // New Calculation Logic based on Seller Type (Individual vs Business)
+  const sellerType = f.sellerType || 'individual'; // individual, business
+  const holdingPeriod = Number(f.holdingPeriod) || 1; // 1: <1yr, 2: 1~2yr, 3: >2yr
+  const is85Over = f.isSmallSize === false; // false means over 85m2
+
+  // Simple Capital Gains for Individual (Short-term focus)
+  // <1 yr: 70%, 1-2 yr: 60% (Adjusted for local tax: 77%, 66%)
+  // Business: Progressive Tax (6-45%) + 10% Local Tax
+  
+  const profitBeforeTax = sellPrice - totalCost;
+  
+  let calculatedTax = 0;
+  let vat = 0; // Value Added Tax (Business only, >85m2)
+
+  // VAT Calculation (Simplified: 10% of building price, assume building is 50% of sell price for estimation?)
+  // Actually, for simplicity in this tool, let's assume VAT is applicable on the profit portion or a fixed ratio if user selects business + >85m2.
+  // Video says: Business > 85m2 -> 10% VAT on Building Price. 
+  // Let's keep it simple: If Business & >85m2, warn user or estimate 10% of (SellPrice * 0.6) as rough building value.
+  // Better: Just focus on Income Tax difference for now as per video emphasis on short-term gains.
+
+  if (profitBeforeTax > 0) {
+    if (sellerType === 'individual') {
+      // Individual Tax Rates (Short term focus)
+      let rate = 0;
+      if (holdingPeriod === 1) rate = 0.77; // 70% + 10% local
+      else if (holdingPeriod === 2) rate = 0.66; // 60% + 10% local
+      else rate = 0.06; // Basic rate (simplified low tier) - User should check detail
+      
+      // Basic rate is complex, let's stick to short term emphasis or basic progressive
+      if (holdingPeriod >= 3) {
+         calculatedTax = calculateIncomeTax(profitBeforeTax) * 1.1; // Basic progressive + 10% local
+      } else {
+         calculatedTax = profitBeforeTax * rate;
+      }
+    } else {
+      // Business Tax Rates (Progressive 6-45% + 10% local)
+      // They can deduct more expenses (interest etc), but here we use profitBeforeTax as base
+      // Real profit for business = profitBeforeTax - (Interest * months held) ... 
+      // Let's assume held for 6 months for "Short term" flip
+      const monthsHeld = 6;
+      const totalInterest = monthlyInterest * monthsHeld;
+      const businessProfit = profitBeforeTax - totalInterest; // Deduct interest expense
+      
+      calculatedTax = calculateIncomeTax(businessProfit) * 1.1; // Progressive + 10% local
+    }
+  }
+  
+  const netProfitFinal = profitBeforeTax - calculatedTax;
+
+  const handleAi = async () => {
+    setLoading(true);
+    const prompt = `경매 수익률 정밀 분석 (유형: ${sellerType === 'individual' ? '개인' : '매매사업자'}):
+    낙찰가: ${formatCurrency(bidPrice)}원
+    총비용: ${formatCurrency(totalCost)}원
+    대출: ${formatCurrency(loanAmount)}원 (금리 ${loanRate}%)
+    실투자금: ${formatCurrency(realInvestment)}원
+    예상매도가: ${formatCurrency(sellPrice)}원
+    세전차익: ${formatCurrency(profitBeforeTax)}원
+    예상세금: ${formatCurrency(calculatedTax)}원 (${sellerType === 'individual' ? (holdingPeriod === 1 ? '1년미만 77%' : '일반/중기') : '사업소득세'})
+    순수익: ${formatCurrency(netProfitFinal)}원
+    
+    이 물건의 투자가치와 ${sellerType === 'business' ? '매매사업자로서의 장단점' : '개인 투자시 세금 리스크'}를 분석해줘.`;
+    const res = await callGemini(prompt);
+    onChange('aiStrategy', res);
+    setLoading(false);
+  };
+
+  return (
+    <div className="space-y-8">
+      {/* Type Selection */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <h3 className="font-bold text-slate-800 mb-4 flex items-center"><Scale className="w-5 h-5 mr-2 text-indigo-600"/>투자 유형 설정 (세금 비교)</h3>
+        <div className="grid grid-cols-2 gap-4">
+            <button 
+                onClick={() => onChange('sellerType', 'individual', 'financials')}
+                className={`p-3 rounded-lg border-2 font-bold text-sm transition-all flex items-center justify-center ${f.sellerType !== 'business' ? 'border-indigo-600 text-indigo-600 bg-indigo-50' : 'border-slate-200 text-slate-400 hover:border-slate-300'}`}
+            >
+                <User className="w-4 h-4 mr-2"/> 개인 (양도세)
+            </button>
+            <button 
+                onClick={() => onChange('sellerType', 'business', 'financials')}
+                className={`p-3 rounded-lg border-2 font-bold text-sm transition-all flex items-center justify-center ${f.sellerType === 'business' ? 'border-indigo-600 text-indigo-600 bg-indigo-50' : 'border-slate-200 text-slate-400 hover:border-slate-300'}`}
+            >
+                <Briefcase className="w-4 h-4 mr-2"/> 매매사업자 (소득세)
+            </button>
+        </div>
+        
+        {f.sellerType === 'business' ? (
+             <div className="mt-4 p-3 bg-blue-50 text-blue-800 text-xs rounded-lg">
+                <p className="font-bold mb-1">💡 매매사업자 체크포인트</p>
+                <ul className="list-disc pl-4 space-y-1">
+                    <li>단기 매도 시 세율 유리 (6~45% 누진세 vs 개인 77%)</li>
+                    <li>대출 이자, 수리비 등 필요경비 인정 범위 넓음</li>
+                    <li className="text-red-600">주의: 건강보험료/국민연금 추가 발생 가능성</li>
+                    <li>85㎡ 초과 시 부가세(VAT) 10% 발생</li>
+                </ul>
+             </div>
+        ) : (
+            <div className="mt-4 flex gap-4">
+                <label className="flex items-center text-sm text-slate-600">
+                    <span className="mr-2 font-bold">보유 기간:</span>
+                    <select 
+                        value={f.holdingPeriod || 1} 
+                        onChange={(e) => onChange('holdingPeriod', Number(e.target.value), 'financials')}
+                        className="border rounded px-2 py-1"
+                    >
+                        <option value={1}>1년 미만 (77%)</option>
+                        <option value={2}>2년 미만 (66%)</option>
+                        <option value={3}>2년 이상 (기본세율)</option>
+                    </select>
+                </label>
+            </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        {/* 취득 비용 섹션 */}
+        <div className="space-y-4">
+            <h3 className="font-bold text-indigo-600 border-b border-indigo-100 pb-2 flex items-center"><Gavel className="w-4 h-4 mr-2"/>1. 취득 비용</h3>
+            <InputGroup label="예상 낙찰가" type="number" value={f.expectedBidPrice} onChange={v => onChange('expectedBidPrice', v, 'financials')}/>
+            <div className="grid grid-cols-2 gap-4">
+                <InputGroup label="취등록세율(%)" type="number" value={f.acquisitionTaxRate} onChange={v => onChange('acquisitionTaxRate', v, 'financials')}/>
+                <InputGroup label="법무사비 등" type="number" value={f.legalCost} onChange={v => onChange('legalCost', v, 'financials')}/>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+                <InputGroup label="명도비(이사비)" type="number" value={f.movingCost} onChange={v => onChange('movingCost', v, 'financials')}/>
+                <InputGroup label="수리비" type="number" value={f.repairCost} onChange={v => onChange('repairCost', v, 'financials')}/>
+            </div>
+            <div className="bg-indigo-50 p-3 rounded-xl flex justify-between text-sm font-bold text-indigo-900">
+                <span>총 취득가 (세금포함)</span><span>{formatCurrency(totalCost)} 원</span>
+            </div>
+        </div>
+
+        {/* 자금 계획 섹션 */}
+        <div className="space-y-4">
+            <h3 className="font-bold text-indigo-600 border-b border-indigo-100 pb-2 flex items-center"><Home className="w-4 h-4 mr-2"/>2. 자금 계획</h3>
+            <div className="grid grid-cols-2 gap-4">
+                <InputGroup label="대출금" type="number" value={f.loanAmount} onChange={v => onChange('loanAmount', v, 'financials')}/>
+                <InputGroup label="금리(%)" type="number" value={f.loanRate} onChange={v => onChange('loanRate', v, 'financials')}/>
+            </div>
+            <div className="grid grid-cols-2 gap-4 pt-2 border-t border-dashed">
+                <InputGroup label="임대 보증금" type="number" value={f.deposit} onChange={v => onChange('deposit', v, 'financials')}/>
+                <InputGroup label="월세" type="number" value={f.monthlyRent} onChange={v => onChange('monthlyRent', v, 'financials')}/>
+            </div>
+             <div className="bg-slate-100 p-3 rounded-xl flex justify-between text-sm font-bold text-slate-700">
+                <span>실 투자금 (Equity)</span><span>{formatCurrency(realInvestment)} 원</span>
+            </div>
+        </div>
+      </div>
+
+      {/* 매도 및 결과 섹션 */}
+      <div className="space-y-4">
+         <h3 className="font-bold text-indigo-600 border-b border-indigo-100 pb-2 flex items-center"><TrendingUp className="w-4 h-4 mr-2"/>3. 수익 분석 ({sellerType === 'business' ? '매매사업자' : '개인'})</h3>
+         <div className="grid grid-cols-2 gap-4 mb-4">
+            <InputGroup label="예상 매도가" type="number" value={f.sellPrice} onChange={v => onChange('sellPrice', v, 'financials')}/>
+            <div className="p-1">
+                <div className="text-xs text-slate-500 mb-1">예상 세금 (자동계산)</div>
+                <div className="font-bold text-red-500 text-lg">{formatCurrency(Math.floor(calculatedTax))} 원</div>
+                <div className="text-[10px] text-slate-400">
+                    {sellerType === 'individual' 
+                        ? (holdingPeriod === 1 ? '단기(1년미만) 77%' : holdingPeriod === 2 ? '단기(2년미만) 66%' : '기본세율') 
+                        : '종합소득세율 (6~45%)'}
+                </div>
+            </div>
+         </div>
+         
+         <div className="bg-slate-900 text-white p-6 rounded-2xl shadow-lg grid grid-cols-2 gap-8">
+            <div>
+                <p className="text-slate-400 text-xs mb-1">임대 수익률 (연)</p>
+                <div className="text-3xl font-bold text-yellow-400">{yieldRate.toFixed(2)}%</div>
+                <p className="text-xs text-slate-500 mt-1">월 순수익: {formatCurrency(Math.floor(monthlyNet))}원</p>
+            </div>
+            <div className="border-l border-slate-700 pl-8">
+                <p className="text-slate-400 text-xs mb-1">매도 시 순차익 (세후)</p>
+                <div className={`text-3xl font-bold ${netProfitFinal > 0 ? 'text-green-400' : 'text-red-400'}`}>{netProfitFinal > 0 ? '+' : ''}{formatCurrency(Math.floor(netProfitFinal))}</div>
+                <p className="text-xs text-slate-500 mt-1">세전 차익: {formatCurrency(profitBeforeTax)}원</p>
+            </div>
+         </div>
+      </div>
+
+      {/* AI 전략 */}
+      <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200">
+        <div className="flex justify-between items-center mb-4"><h3 className="font-bold flex items-center text-slate-800"><Bot className="w-5 h-5 mr-2 text-indigo-600"/>AI 투자 전략</h3><button onClick={handleAi} disabled={loading} className="bg-slate-800 hover:bg-slate-900 text-white text-sm font-bold px-4 py-2 rounded-lg disabled:bg-slate-400">{loading?'분석 중...':'✨ 전략 제안'}</button></div>
+        <textarea className="w-full h-24 text-sm bg-white border border-slate-300 rounded-xl p-4 resize-none" value={item.aiStrategy||''} onChange={e => onChange('aiStrategy', e.target.value)} placeholder="위 데이터를 바탕으로 AI가 상세한 투자 전략을 제시합니다."/>
+      </div>
+      <div className="flex justify-end pt-4 border-t"><SaveButton onClick={onSave}/></div>
+    </div>
+  );
+}
+
 function InputGroup({ label, value, onChange, type='text', options }) { return <div className="w-full">{label&&<label className="block text-xs text-slate-500 mb-1">{label}</label>}{type==='select'?<select value={value||''} onChange={e=>onChange(e.target.value)} className="w-full border rounded p-2">{options.map(o=><option key={o}>{o}</option>)}</select>:<input type={type} value={value||''} onChange={e=>onChange(e.target.value)} className="w-full border rounded p-2"/>}</div>; }
 function SaveButton({onClick}) { return <button onClick={onClick} className="bg-indigo-600 text-white px-4 py-2 rounded font-bold text-sm">저장</button>; }
 function getStatusColor(s) { return ({'관심':'bg-blue-100 text-blue-600','권리분석':'bg-yellow-100 text-yellow-700','임장중':'bg-green-100 text-green-700','입찰준비':'bg-red-100 text-red-600','낙찰':'bg-purple-100 text-purple-700'}[s]||'bg-slate-100'); }
