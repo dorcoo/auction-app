@@ -3,7 +3,7 @@ import {
   Gavel, Home, Calculator, ClipboardList, Calendar, AlertTriangle, 
   CheckCircle2, Plus, Trash2, Save, ArrowLeft, Search, ExternalLink, 
   MapPin, Sparkles, Bot, LogIn, LogOut, Lock, User, FileSearch, Download, TrendingUp,
-  Scale, Briefcase
+  Scale, Briefcase, Building2, Clock
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { 
@@ -29,7 +29,7 @@ const ALLOWED_EMAIL = "";
 const apiKey = "AIzaSyB2Ni95d2qjT8VjA0d4-Hll4y-SswvwFf4"; 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// --- Firebase 설정 (사장님 전용 키 적용완료) ---
+// --- Firebase 설정 ---
 const firebaseConfig = {
   apiKey: "AIzaSyAeK7aHZQpk4zlPUSEc_poME8NtZX-i_N0",
   authDomain: "land-10a44.firebaseapp.com",
@@ -43,8 +43,6 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
-
-// 로컬/웹 배포용 고정 ID
 const appId = 'auction-manager-v1';
 
 // --- Gemini API 호출 함수 ---
@@ -78,11 +76,22 @@ const formatCurrency = (value) => {
   return isNaN(num) ? value : new Intl.NumberFormat('ko-KR').format(num);
 };
 
+// D-Day 계산 로직
 const getDday = (targetDate) => {
   if (!targetDate) return null;
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const target = new Date(targetDate); target.setHours(0, 0, 0, 0);
   return Math.ceil((target - today) / (1000 * 60 * 60 * 24));
+};
+
+// D-Day 표시 문자열 생성
+const getDdayString = (targetDate) => {
+  const d = getDday(targetDate);
+  if (d === null) return { text: '-', color: 'text-slate-400', bg: 'bg-slate-100' };
+  if (d === 0) return { text: 'D-Day', color: 'text-red-600', bg: 'bg-red-100 animate-pulse' };
+  if (d < 0) return { text: '입찰마감', color: 'text-slate-500', bg: 'bg-slate-200' };
+  if (d <= 3) return { text: `D-${d}`, color: 'text-red-500', bg: 'bg-red-50' };
+  return { text: `D-${d}`, color: 'text-indigo-600', bg: 'bg-indigo-50' };
 };
 
 // 종합소득세율 계산 (2024년 기준)
@@ -160,9 +169,9 @@ export default function AuctionManager() {
           expectedBidPrice: '', acquisitionTaxRate: 1.1, legalCost: '', repairCost: '', movingCost: '', 
           loanAmount: '', loanRate: 4.5, 
           sellPrice: '', monthlyRent: '', deposit: '',
-          sellerType: 'individual', // individual(개인), business(매매사업자)
-          isSmallSize: true, // 85m2 이하 여부
-          holdingPeriod: 1 // 보유기간 (1: 1년미만, 2: 2년미만, 3: 2년이상)
+          sellerType: 'individual', 
+          isSmallSize: true, 
+          holdingPeriod: 1 
         },
         aiFieldAnalysis: '', aiStrategy: ''
       });
@@ -184,6 +193,9 @@ export default function AuctionManager() {
   const handleImportParsedItem = (parsedItem) => {
     const newItem = {
       caseNumber: parsedItem.caseNo,
+      itemNumber: parsedItem.itemNo || '1',
+      court: parsedItem.deptInfo || '',
+      auctionStatus: parsedItem.status || '',
       type: parsedItem.usage || '기타',
       address: parsedItem.address,
       appraisalPrice: parsedItem.appraisalPrice.replace(/[^0-9]/g, ''),
@@ -192,7 +204,7 @@ export default function AuctionManager() {
       fieldNote: `[가져온 데이터]\n${parsedItem.details}\n${parsedItem.remark}`,
     };
     handleAddItem(newItem);
-    alert("내 물건 리스트에 추가되었습니다!");
+    alert("내 물건 리스트에 상세 정보가 추가되었습니다! 입찰 기일은 직접 입력해주세요.");
   };
 
   if (!user && !loading) return <LoginScreen authError={authError} onGoogleLogin={handleGoogleLogin} onGuestLogin={handleGuestLogin} />;
@@ -420,7 +432,10 @@ function Dashboard({ items, onViewChange, onItemSelect }) {
       <header className="mb-8"><h1 className="text-2xl font-bold">대시보드</h1></header>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8"><StatCard title="관심" count={stats.interested} color="bg-blue-500"/><StatCard title="분석" count={stats.analyzing} color="bg-yellow-500"/><StatCard title="임장" count={stats.field} color="bg-green-500"/><StatCard title="입찰" count={stats.bidding} color="bg-red-500"/></div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white rounded-2xl border p-6"><h2 className="font-bold mb-4 flex items-center"><Calendar className="mr-2 text-indigo-600"/> 다가오는 입찰</h2><div className="space-y-3">{upcoming.map(i=><div key={i.id} onClick={()=>{onItemSelect(i)}} className="flex justify-between p-3 border rounded-lg cursor-pointer hover:bg-slate-50"><div><div className="font-bold text-sm">{i.caseNumber}</div><div className="text-xs text-slate-500">{i.address}</div></div><div className="text-indigo-600 font-bold text-sm">D-{getDday(i.biddingDate)}</div></div>)}</div></div>
+        <div className="bg-white rounded-2xl border p-6"><h2 className="font-bold mb-4 flex items-center"><Calendar className="mr-2 text-indigo-600"/> 다가오는 입찰</h2><div className="space-y-3">{upcoming.map(i=>{
+          const dday = getDdayString(i.biddingDate);
+          return <div key={i.id} onClick={()=>{onItemSelect(i)}} className="flex justify-between p-3 border rounded-lg cursor-pointer hover:bg-slate-50"><div><div className="font-bold text-sm">{i.caseNumber}</div><div className="text-xs text-slate-500">{i.address}</div></div><div className={`font-bold text-sm px-2 py-1 rounded ${dday.bg} ${dday.color}`}>{dday.text}</div></div>
+        })}</div></div>
         <div className="bg-indigo-600 rounded-2xl p-6 text-white"><h2 className="font-bold mb-4">체크포인트</h2><ul className="text-sm space-y-2 mb-6"><li>• 말소기준권리 확인</li><li>• 체납관리비 확인</li></ul><button onClick={()=>onViewChange('add')} className="w-full py-2 bg-white text-indigo-600 font-bold rounded-lg">새 물건 등록</button></div>
       </div>
     </div>
@@ -430,20 +445,98 @@ function StatCard({ title, count, color }) { return <div className="bg-white p-4
 function ItemList({ items, onItemSelect, onAddClick }) {
   const [filter, setFilter] = useState('전체');
   const filtered = items.filter(i => filter === '전체' || i.status === filter);
-  return ( <div className="p-8 max-w-7xl mx-auto"><div className="flex justify-between mb-6"><h1 className="text-2xl font-bold">물건 관리</h1><div className="flex gap-2"><select value={filter} onChange={e=>setFilter(e.target.value)} className="border rounded px-2"><option>전체</option><option>관심</option><option>권리분석</option><option>임장중</option><option>입찰준비</option></select><button onClick={onAddClick} className="bg-indigo-600 text-white px-4 rounded flex items-center"><Plus className="w-4 h-4 mr-1"/>등록</button></div></div><div className="grid grid-cols-1 md:grid-cols-3 gap-6">{filtered.map(i=><div key={i.id} onClick={()=>onItemSelect(i)} className="bg-white p-5 rounded-2xl border cursor-pointer hover:shadow-md"><div className="flex justify-between mb-2"><span className={`text-xs px-2 py-1 rounded font-bold ${getStatusColor(i.status)}`}>{i.status}</span><span className="text-xs text-slate-400">{i.type}</span></div><h3 className="font-bold">{i.caseNumber}</h3><p className="text-sm text-slate-500 truncate mb-4">{i.address}</p><div className="flex justify-between text-sm border-t pt-2"><span>{formatCurrency(i.appraisalPrice)}</span><span>{i.biddingDate}</span></div></div>)}</div></div> );
+  return ( 
+    <div className="p-8 max-w-7xl mx-auto">
+      <div className="flex flex-col md:flex-row justify-between mb-8 gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">물건 관리</h1>
+          <p className="text-slate-500 text-sm mt-1">등록된 총 {items.length}개의 물건</p>
+        </div>
+        <div className="flex gap-2">
+          <select value={filter} onChange={e=>setFilter(e.target.value)} className="border rounded-lg px-4 py-2 text-sm bg-white focus:ring-2 focus:ring-indigo-500 outline-none"><option>전체</option><option>관심</option><option>권리분석</option><option>임장중</option><option>입찰준비</option><option>완료</option></select>
+          <button onClick={onAddClick} className="bg-indigo-600 text-white px-5 py-2 rounded-lg flex items-center font-bold text-sm hover:bg-indigo-700 transition-colors shadow-sm"><Plus className="w-4 h-4 mr-2"/>물건 등록</button>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {filtered.map(i=>{
+          const dday = getDdayString(i.biddingDate);
+          return (
+            <div key={i.id} onClick={()=>onItemSelect(i)} className="bg-white p-6 rounded-2xl border border-slate-100 hover:shadow-lg hover:border-indigo-200 cursor-pointer transition-all flex flex-col gap-3">
+              <div className="flex justify-between items-start">
+                <div className="flex flex-col">
+                   <div className="flex items-center gap-1 mb-1">
+                     <span className="text-[10px] font-bold text-slate-400 bg-slate-50 px-1.5 py-0.5 rounded">{i.court || '관할법원'}</span>
+                     <span className="text-[10px] font-bold text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded">물건 {i.itemNumber || '1'}</span>
+                   </div>
+                   <h3 className="font-bold text-lg text-slate-900 leading-tight">{i.caseNumber}</h3>
+                </div>
+                <span className={`text-xs px-2.5 py-1 rounded-lg font-bold whitespace-nowrap ${getStatusColor(i.status)}`}>{i.status}</span>
+              </div>
+              
+              <div className="flex gap-2 text-xs">
+                 <span className="px-2 py-1 rounded bg-slate-100 text-slate-600 font-medium">{i.type}</span>
+                 {i.auctionStatus && <span className="px-2 py-1 rounded bg-red-50 text-red-600 font-bold">{i.auctionStatus}</span>}
+              </div>
+            
+              <p className="text-sm text-slate-600 truncate">{i.address}</p>
+              
+              <div className="flex justify-between items-end text-sm border-t border-slate-50 pt-4 mt-auto">
+                <div>
+                    <div className="text-xs text-slate-400 mb-0.5">감정가</div>
+                    <div className="font-bold text-slate-800">{formatCurrency(i.appraisalPrice)}</div>
+                </div>
+                <div className="text-right">
+                    <div className="text-xs text-slate-400 mb-0.5">입찰기일</div>
+                    <span className={`font-bold px-2 py-0.5 rounded ${dday.bg} ${dday.color}`}>{dday.text}</span>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div> 
+  );
 }
 function AddItemForm({ onCancel, onSave }) {
-  const [form, setForm] = useState({ caseNumber: '', type: '아파트', address: '', appraisalPrice: '', minPrice: '', biddingDate: '' });
-  return (<div className="p-8 max-w-2xl mx-auto"><button onClick={onCancel} className="mb-4 text-slate-500">취소</button><div className="bg-white p-8 rounded-2xl border"><h2 className="text-2xl font-bold mb-6">새 물건 등록</h2><div className="space-y-4"><div className="grid grid-cols-2 gap-4"><InputGroup label="사건번호" value={form.caseNumber} onChange={v=>setForm({...form,caseNumber:v})}/><InputGroup label="종류" type="select" options={['아파트','빌라','오피스텔','상가','토지']} value={form.type} onChange={v=>setForm({...form,type:v})}/></div><InputGroup label="주소" value={form.address} onChange={v=>setForm({...form,address:v})}/><div className="grid grid-cols-2 gap-4"><InputGroup label="감정가" type="number" value={form.appraisalPrice} onChange={v=>setForm({...form,appraisalPrice:v})}/><InputGroup label="최저가" type="number" value={form.minPrice} onChange={v=>setForm({...form,minPrice:v})}/></div><InputGroup label="입찰일" type="date" value={form.biddingDate} onChange={v=>setForm({...form,biddingDate:v})}/><div className="flex justify-end gap-2 pt-4"><button onClick={onCancel} className="px-4 py-2">취소</button><button onClick={()=>onSave(form)} className="px-6 py-2 bg-indigo-600 text-white rounded font-bold">등록</button></div></div></div></div>);
+  const [form, setForm] = useState({ caseNumber: '', itemNumber: '1', court: '', auctionStatus: '', type: '아파트', address: '', appraisalPrice: '', minPrice: '', biddingDate: '' });
+  return (
+    <div className="p-8 max-w-2xl mx-auto">
+      <button onClick={onCancel} className="mb-4 flex items-center text-slate-500 hover:text-slate-800"><ArrowLeft className="w-4 h-4 mr-1"/>목록으로 돌아가기</button>
+      <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm">
+        <h2 className="text-2xl font-bold mb-8 text-slate-900">새 물건 등록</h2>
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 gap-6">
+            <InputGroup label="사건번호" placeholder="2024타경1234" value={form.caseNumber} onChange={v => setForm({...form, caseNumber: v})} />
+            <InputGroup label="물건번호" value={form.itemNumber} onChange={v => setForm({...form, itemNumber: v})} />
+          </div>
+          <div className="grid grid-cols-2 gap-6">
+            <InputGroup label="관할법원" placeholder="서울중앙지법" value={form.court} onChange={v => setForm({...form, court: v})} />
+            <InputGroup label="현재상태" placeholder="유찰1회" value={form.auctionStatus} onChange={v => setForm({...form, auctionStatus: v})} />
+          </div>
+          <InputGroup label="물건 종류" type="select" options={['아파트','빌라/다세대','오피스텔','상가','토지']} value={form.type} onChange={v => setForm({...form, type: v})} />
+          <InputGroup label="소재지 (주소)" placeholder="서울시..." value={form.address} onChange={v => setForm({...form, address: v})} />
+          <div className="grid grid-cols-2 gap-6">
+            <InputGroup label="감정가 (원)" type="number" value={form.appraisalPrice} onChange={v => setForm({...form, appraisalPrice: v})} />
+            <InputGroup label="최저가 (원)" type="number" value={form.minPrice} onChange={v => setForm({...form, minPrice: v})} />
+          </div>
+          <InputGroup label="입찰 기일" type="date" value={form.biddingDate} onChange={v => setForm({...form, biddingDate: v})} />
+          <div className="flex justify-end gap-3 pt-6 border-t mt-2">
+            <button onClick={onCancel} className="px-5 py-2 text-slate-600 hover:bg-slate-50 rounded-lg transition-colors">취소</button>
+            <button onClick={() => onSave(form)} className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-bold hover:bg-indigo-700 shadow-md transition-colors">등록하기</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 function ItemDetail({ item, onBack, onUpdate, onDelete }) {
   const [tab, setTab] = useState('info');
   const [local, setLocal] = useState(item);
   useEffect(() => setLocal(item), [item]);
   const handleChange = (f, v, s) => setLocal(p => s ? ({...p, [s]: {...p[s], [f]: v}}) : ({...p, [f]: v}));
-  return (<div className="h-full flex flex-col bg-slate-50"><div className="bg-white px-8 py-4 border-b flex justify-between items-center"><div className="flex items-center gap-4"><button onClick={onBack}><ArrowLeft/></button><div><h1 className="font-bold text-xl">{local.caseNumber}</h1><p className="text-sm text-slate-500">{local.address}</p></div></div><div className="flex gap-2"><select value={local.status} onChange={e=>{handleChange('status',e.target.value);onUpdate(item.id,{...local,status:e.target.value})}} className="border rounded px-2"><option>관심</option><option>권리분석</option><option>임장중</option><option>입찰준비</option><option>낙찰</option><option>패찰</option></select><button onClick={()=>onDelete(item.id)} className="text-red-500 p-2"><Trash2/></button></div></div><div className="bg-white px-8 border-b flex gap-6">{[{id:'info',icon:Home,label:'정보'},{id:'rights',icon:AlertTriangle,label:'권리'},{id:'field',icon:MapPin,label:'임장'},{id:'calc',icon:Calculator,label:'수익'}].map(t=><button key={t.id} onClick={()=>setTab(t.id)} className={`py-3 flex items-center border-b-2 ${tab===t.id?'border-indigo-600 text-indigo-600 font-bold':'border-transparent text-slate-500'}`}><t.icon className="w-4 h-4 mr-2"/>{t.label}</button>)}</div><div className="flex-1 overflow-y-auto p-8"><div className="max-w-4xl mx-auto bg-white p-8 rounded-2xl border">{tab==='info'&&<InfoTab item={local} onChange={handleChange} onSave={()=>onUpdate(item.id,local)}/>}{tab==='rights'&&<RightsTab item={local} onChange={handleChange} onSave={()=>onUpdate(item.id,local)}/>}{tab==='field'&&<FieldTab item={local} onChange={handleChange} onSave={()=>onUpdate(item.id,local)}/>}{tab==='calc'&&<CalcTab item={local} onChange={handleChange} onSave={()=>onUpdate(item.id,local)}/>}</div></div></div>);
+  return (<div className="h-full flex flex-col bg-slate-50"><div className="bg-white px-8 py-4 border-b flex justify-between items-center"><div className="flex items-center gap-4"><button onClick={onBack}><ArrowLeft/></button><div><h1 className="font-bold text-xl">{local.caseNumber} <span className="text-sm font-normal text-slate-500">[{local.itemNumber || '1'}]</span></h1><p className="text-sm text-slate-500">{local.address}</p></div></div><div className="flex gap-2"><select value={local.status} onChange={e=>{handleChange('status',e.target.value);onUpdate(item.id,{...local,status:e.target.value})}} className="border rounded px-2"><option>관심</option><option>권리분석</option><option>임장중</option><option>입찰준비</option><option>낙찰</option><option>패찰</option></select><button onClick={()=>onDelete(item.id)} className="text-red-500 p-2"><Trash2/></button></div></div><div className="bg-white px-8 border-b flex gap-6">{[{id:'info',icon:Home,label:'정보'},{id:'rights',icon:AlertTriangle,label:'권리'},{id:'field',icon:MapPin,label:'임장'},{id:'calc',icon:Calculator,label:'수익'}].map(t=><button key={t.id} onClick={()=>setTab(t.id)} className={`py-3 flex items-center border-b-2 ${tab===t.id?'border-indigo-600 text-indigo-600 font-bold':'border-transparent text-slate-500'}`}><t.icon className="w-4 h-4 mr-2"/>{t.label}</button>)}</div><div className="flex-1 overflow-y-auto p-8"><div className="max-w-4xl mx-auto bg-white p-8 rounded-2xl border">{tab==='info'&&<InfoTab item={local} onChange={handleChange} onSave={()=>onUpdate(item.id,local)}/>}{tab==='rights'&&<RightsTab item={local} onChange={handleChange} onSave={()=>onUpdate(item.id,local)}/>}{tab==='field'&&<FieldTab item={local} onChange={handleChange} onSave={()=>onUpdate(item.id,local)}/>}{tab==='calc'&&<CalcTab item={local} onChange={handleChange} onSave={()=>onUpdate(item.id,local)}/>}</div></div></div>);
 }
-function InfoTab({ item, onChange, onSave }) { return <div className="space-y-6"><div className="grid grid-cols-2 gap-4"><InputGroup label="사건번호" value={item.caseNumber} onChange={v=>onChange('caseNumber',v)}/><InputGroup label="종류" value={item.type} onChange={v=>onChange('type',v)} type="select" options={['아파트','빌라','오피스텔','상가']}/></div><InputGroup label="주소" value={item.address} onChange={v=>onChange('address',v)}/><div className="grid grid-cols-2 gap-4"><InputGroup label="감정가" type="number" value={item.appraisalPrice} onChange={v=>onChange('appraisalPrice',v)}/><InputGroup label="최저가" type="number" value={item.minPrice} onChange={v=>onChange('minPrice',v)}/></div><InputGroup label="입찰일" type="date" value={item.biddingDate} onChange={v=>onChange('biddingDate',v)}/><div className="flex justify-end pt-4"><SaveButton onClick={onSave}/></div></div>; }
+function InfoTab({ item, onChange, onSave }) { return <div className="space-y-6"><div className="grid grid-cols-2 gap-4"><InputGroup label="사건번호" value={item.caseNumber} onChange={v=>onChange('caseNumber',v)}/><InputGroup label="물건번호" value={item.itemNumber || '1'} onChange={v=>onChange('itemNumber',v)}/></div><div className="grid grid-cols-2 gap-4"><InputGroup label="관할법원" value={item.court} onChange={v=>onChange('court',v)}/><InputGroup label="현재상태" value={item.auctionStatus} onChange={v=>onChange('auctionStatus',v)}/></div><InputGroup label="종류" value={item.type} onChange={v=>onChange('type',v)} type="select" options={['아파트','빌라','오피스텔','상가','토지']}/><InputGroup label="주소" value={item.address} onChange={v=>onChange('address',v)}/><div className="grid grid-cols-2 gap-4"><InputGroup label="감정가" type="number" value={item.appraisalPrice} onChange={v=>onChange('appraisalPrice',v)}/><InputGroup label="최저가" type="number" value={item.minPrice} onChange={v=>onChange('minPrice',v)}/></div><InputGroup label="입찰일" type="date" value={item.biddingDate} onChange={v=>onChange('biddingDate',v)}/><div className="flex justify-end pt-4"><SaveButton onClick={onSave}/></div></div>; }
 function RightsTab({ item, onChange, onSave }) { const r=item.rights||{}; return <div className="space-y-6"><div className="grid grid-cols-2 gap-6"><InputGroup label="말소기준" type="date" value={r.malsoDate} onChange={v=>onChange('malsoDate',v,'rights')}/><div className="space-y-2"><InputGroup label="전입일" type="date" value={r.tenantMoveInDate} onChange={v=>onChange('tenantMoveInDate',v,'rights')}/><InputGroup label="보증금" type="number" value={r.tenantDeposit} onChange={v=>onChange('tenantDeposit',v,'rights')}/></div></div><div className="flex justify-end pt-4"><SaveButton onClick={onSave}/></div></div>; }
 function FieldTab({ item, onChange, onSave }) { const c=item.checklists||{}; const [loading,setLoading]=useState(false); const handleAi=async()=>{setLoading(true);const res=await callGemini(`임장 분석: ${JSON.stringify(c)}, 메모: ${item.fieldNote}`);onChange('aiFieldAnalysis',res);setLoading(false);}; return <div className="space-y-6"><div className="grid grid-cols-2 gap-4"><div><h3 className="font-bold mb-2">체크리스트</h3>{['leak','sunlight','parking','managementFee'].map(k=><div key={k} onClick={()=>onChange(k,!c[k],'checklists')} className={`p-3 border rounded mb-2 cursor-pointer ${c[k]?'bg-indigo-50':''}`}>{k}</div>)}</div><textarea className="w-full h-40 border rounded p-2" value={item.fieldNote||''} onChange={e=>onChange('fieldNote',e.target.value)}/></div><div className="bg-indigo-50 p-4 rounded"><button onClick={handleAi} disabled={loading} className="bg-indigo-600 text-white px-2 py-1 rounded text-xs mb-2">AI 분석</button><p className="text-sm">{item.aiFieldAnalysis}</p></div><div className="flex justify-end pt-4"><SaveButton onClick={onSave}/></div></div>; }
 
