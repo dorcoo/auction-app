@@ -3,7 +3,7 @@ import {
   Gavel, Home, Calculator, ClipboardList, Calendar, AlertTriangle, 
   CheckCircle2, Plus, Trash2, Save, ArrowLeft, Search, ExternalLink, 
   MapPin, Sparkles, Bot, LogIn, LogOut, Lock, User, FileSearch, Download, TrendingUp,
-  Scale, Briefcase, Building2, Clock
+  Scale, Briefcase, Building2, Clock, Map
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { 
@@ -76,7 +76,6 @@ const formatCurrency = (value) => {
   return isNaN(num) ? value : new Intl.NumberFormat('ko-KR').format(num);
 };
 
-// D-Day 계산 로직
 const getDday = (targetDate) => {
   if (!targetDate) return null;
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -84,17 +83,15 @@ const getDday = (targetDate) => {
   return Math.ceil((target - today) / (1000 * 60 * 60 * 24));
 };
 
-// D-Day 표시 문자열 생성
 const getDdayString = (targetDate) => {
   const d = getDday(targetDate);
   if (d === null) return { text: '-', color: 'text-slate-400', bg: 'bg-slate-100' };
   if (d === 0) return { text: 'D-Day', color: 'text-red-600', bg: 'bg-red-100 animate-pulse' };
-  if (d < 0) return { text: '입찰마감', color: 'text-slate-500', bg: 'bg-slate-200' };
+  if (d < 0) return { text: '마감', color: 'text-slate-500', bg: 'bg-slate-200' };
   if (d <= 3) return { text: `D-${d}`, color: 'text-red-500', bg: 'bg-red-50' };
   return { text: `D-${d}`, color: 'text-indigo-600', bg: 'bg-indigo-50' };
 };
 
-// 종합소득세율 계산 (2024년 기준)
 const calculateIncomeTax = (taxBase) => {
   if (taxBase <= 14000000) return taxBase * 0.06;
   if (taxBase <= 50000000) return taxBase * 0.15 - 1260000;
@@ -161,9 +158,37 @@ export default function AuctionManager() {
   const handleAddItem = async (newItem) => {
     if (!user) return;
     try {
+      // 4가지 카테고리로 세분화된 체크리스트 초기값
+      const initialChecklist = {
+        // 1. 점유 현황
+        occupancyStatus: '', // 공실, 소유자, 임차인
+        isDoorLocked: false, // 문 잠김 여부
+        mailboxStatus: '', // 우편물 상태 (쌓임, 깨끗함)
+        meterStatus: '', // 계량기 (돌아감, 멈춤)
+        
+        // 2. 물리적 하자
+        leak: false, // 누수 흔적
+        cracks: false, // 벽체 균열
+        mold: false, // 곰팡이
+        sunlight: '', // 일조량 (좋음, 보통, 나쁨)
+        
+        // 3. 편의 시설
+        parking: '', // 주차 공간 (여유, 부족)
+        elevator: false, // 엘리베이터 유무
+        publicTransport: '', // 대중교통 접근성
+        
+        // 4. 시세 조사
+        marketPrice: '', // 부동산 매물 호가
+        transactionPrice: '', // 실거래가
+        forcedSalePrice: '', // 급매가
+        managementFee: '', // 미납 관리비
+      };
+
       await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'auction_items'), {
-        ...newItem, createdAt: serverTimestamp(), status: '관심',
-        checklists: { leak: false, sunlight: false, parking: false, managementFee: false },
+        ...newItem, 
+        createdAt: serverTimestamp(), 
+        status: '관심',
+        checklists: initialChecklist,
         rights: { malsoDate: '', tenantMoveInDate: '', tenantFixDate: '', tenantDeposit: '', isDangerous: false },
         financials: { 
           expectedBidPrice: '', acquisitionTaxRate: 1.1, legalCost: '', repairCost: '', movingCost: '', 
@@ -194,8 +219,8 @@ export default function AuctionManager() {
     const newItem = {
       caseNumber: parsedItem.caseNo,
       itemNumber: parsedItem.itemNo || '1',
-      court: parsedItem.deptInfo || '',
-      auctionStatus: parsedItem.status || '',
+      court: parsedItem.deptInfo || '', // 관할법원 
+      auctionStatus: parsedItem.status || '', // 현재상태 (유찰 등)
       type: parsedItem.usage || '기타',
       address: parsedItem.address,
       appraisalPrice: parsedItem.appraisalPrice.replace(/[^0-9]/g, ''),
@@ -204,7 +229,7 @@ export default function AuctionManager() {
       fieldNote: `[가져온 데이터]\n${parsedItem.details}\n${parsedItem.remark}`,
     };
     handleAddItem(newItem);
-    alert("내 물건 리스트에 상세 정보가 추가되었습니다! 입찰 기일은 직접 입력해주세요.");
+    alert("내 물건 리스트에 추가되었습니다! 입찰 기일을 입력해주세요.");
   };
 
   if (!user && !loading) return <LoginScreen authError={authError} onGoogleLogin={handleGoogleLogin} onGuestLogin={handleGuestLogin} />;
@@ -461,7 +486,7 @@ function ItemList({ items, onItemSelect, onAddClick }) {
         {filtered.map(i=>{
           const dday = getDdayString(i.biddingDate);
           return (
-            <div key={i.id} onClick={()=>onItemSelect(i)} className="bg-white p-6 rounded-2xl border border-slate-100 hover:shadow-lg hover:border-indigo-200 cursor-pointer transition-all flex flex-col gap-3">
+            <div key={i.id} onClick={()=>onItemSelect(i)} className="bg-white p-6 rounded-2xl border border-slate-100 hover:shadow-lg hover:border-indigo-200 cursor-pointer transition-all flex flex-col gap-3 relative group">
               <div className="flex justify-between items-start">
                 <div className="flex flex-col">
                    <div className="flex items-center gap-1 mb-1">
@@ -490,6 +515,17 @@ function ItemList({ items, onItemSelect, onAddClick }) {
                     <span className={`font-bold px-2 py-0.5 rounded ${dday.bg} ${dday.color}`}>{dday.text}</span>
                 </div>
               </div>
+              
+              <button 
+                onClick={(e) => {
+                    e.stopPropagation();
+                    window.open(`https://map.naver.com/v5/search/${encodeURIComponent(i.address)}`, '_blank');
+                }}
+                className="absolute top-4 right-4 bg-white p-2 rounded-full shadow-md text-slate-400 hover:text-green-600 hover:bg-green-50 transition-colors opacity-0 group-hover:opacity-100"
+                title="네이버 지도 보기"
+              >
+                <MapPin className="w-5 h-5"/>
+              </button>
             </div>
           );
         })}
@@ -534,13 +570,95 @@ function ItemDetail({ item, onBack, onUpdate, onDelete }) {
   const [local, setLocal] = useState(item);
   useEffect(() => setLocal(item), [item]);
   const handleChange = (f, v, s) => setLocal(p => s ? ({...p, [s]: {...p[s], [f]: v}}) : ({...p, [f]: v}));
+  
   return (<div className="h-full flex flex-col bg-slate-50"><div className="bg-white px-8 py-4 border-b flex justify-between items-center"><div className="flex items-center gap-4"><button onClick={onBack}><ArrowLeft/></button><div><h1 className="font-bold text-xl">{local.caseNumber} <span className="text-sm font-normal text-slate-500">[{local.itemNumber || '1'}]</span></h1><p className="text-sm text-slate-500">{local.address}</p></div></div><div className="flex gap-2"><select value={local.status} onChange={e=>{handleChange('status',e.target.value);onUpdate(item.id,{...local,status:e.target.value})}} className="border rounded px-2"><option>관심</option><option>권리분석</option><option>임장중</option><option>입찰준비</option><option>낙찰</option><option>패찰</option></select><button onClick={()=>onDelete(item.id)} className="text-red-500 p-2"><Trash2/></button></div></div><div className="bg-white px-8 border-b flex gap-6">{[{id:'info',icon:Home,label:'정보'},{id:'rights',icon:AlertTriangle,label:'권리'},{id:'field',icon:MapPin,label:'임장'},{id:'calc',icon:Calculator,label:'수익'}].map(t=><button key={t.id} onClick={()=>setTab(t.id)} className={`py-3 flex items-center border-b-2 ${tab===t.id?'border-indigo-600 text-indigo-600 font-bold':'border-transparent text-slate-500'}`}><t.icon className="w-4 h-4 mr-2"/>{t.label}</button>)}</div><div className="flex-1 overflow-y-auto p-8"><div className="max-w-4xl mx-auto bg-white p-8 rounded-2xl border">{tab==='info'&&<InfoTab item={local} onChange={handleChange} onSave={()=>onUpdate(item.id,local)}/>}{tab==='rights'&&<RightsTab item={local} onChange={handleChange} onSave={()=>onUpdate(item.id,local)}/>}{tab==='field'&&<FieldTab item={local} onChange={handleChange} onSave={()=>onUpdate(item.id,local)}/>}{tab==='calc'&&<CalcTab item={local} onChange={handleChange} onSave={()=>onUpdate(item.id,local)}/>}</div></div></div>);
 }
-function InfoTab({ item, onChange, onSave }) { return <div className="space-y-6"><div className="grid grid-cols-2 gap-4"><InputGroup label="사건번호" value={item.caseNumber} onChange={v=>onChange('caseNumber',v)}/><InputGroup label="물건번호" value={item.itemNumber || '1'} onChange={v=>onChange('itemNumber',v)}/></div><div className="grid grid-cols-2 gap-4"><InputGroup label="관할법원" value={item.court} onChange={v=>onChange('court',v)}/><InputGroup label="현재상태" value={item.auctionStatus} onChange={v=>onChange('auctionStatus',v)}/></div><InputGroup label="종류" value={item.type} onChange={v=>onChange('type',v)} type="select" options={['아파트','빌라','오피스텔','상가','토지']}/><InputGroup label="주소" value={item.address} onChange={v=>onChange('address',v)}/><div className="grid grid-cols-2 gap-4"><InputGroup label="감정가" type="number" value={item.appraisalPrice} onChange={v=>onChange('appraisalPrice',v)}/><InputGroup label="최저가" type="number" value={item.minPrice} onChange={v=>onChange('minPrice',v)}/></div><InputGroup label="입찰일" type="date" value={item.biddingDate} onChange={v=>onChange('biddingDate',v)}/><div className="flex justify-end pt-4"><SaveButton onClick={onSave}/></div></div>; }
+function InfoTab({ item, onChange, onSave }) { return <div className="space-y-6"><div className="grid grid-cols-2 gap-4"><InputGroup label="사건번호" value={item.caseNumber} onChange={v=>onChange('caseNumber',v)}/><InputGroup label="물건번호" value={item.itemNumber || '1'} onChange={v=>onChange('itemNumber',v)}/></div><div className="grid grid-cols-2 gap-4"><InputGroup label="관할법원" value={item.court} onChange={v=>onChange('court',v)}/><InputGroup label="현재상태" value={item.auctionStatus} onChange={v=>onChange('auctionStatus',v)}/></div><InputGroup label="종류" value={item.type} onChange={v=>onChange('type',v)} type="select" options={['아파트','빌라','오피스텔','상가','토지']}/><InputGroup label="주소" value={item.address} onChange={v=>onChange('address',v)}/><div className="grid grid-cols-2 gap-4"><InputGroup label="감정가" type="number" value={item.appraisalPrice} onChange={v=>onChange('appraisalPrice',v)}/><InputGroup label="최저가" type="number" value={item.minPrice} onChange={v=>onChange('minPrice',v)}/></div><InputGroup label="입찰일" type="date" value={item.biddingDate} onChange={v=>onChange('biddingDate',v)}/><div className="flex justify-between items-center pt-6 border-t"><div className="flex gap-2"><a href={`https://map.naver.com/v5/search/${encodeURIComponent(item.address)}`} target="_blank" rel="noreferrer" className="flex items-center px-4 py-2 bg-[#03C75A] text-white rounded-lg hover:opacity-90 text-sm font-bold"><MapPin className="w-4 h-4 mr-2"/>네이버 지도</a><a href="https://www.courtauction.go.kr/" target="_blank" rel="noreferrer" className="flex items-center px-4 py-2 bg-slate-800 text-white rounded-lg hover:opacity-90 text-sm font-bold"><Gavel className="w-4 h-4 mr-2"/>대법원 경매</a></div><SaveButton onClick={onSave}/></div></div>; }
 function RightsTab({ item, onChange, onSave }) { const r=item.rights||{}; return <div className="space-y-6"><div className="grid grid-cols-2 gap-6"><InputGroup label="말소기준" type="date" value={r.malsoDate} onChange={v=>onChange('malsoDate',v,'rights')}/><div className="space-y-2"><InputGroup label="전입일" type="date" value={r.tenantMoveInDate} onChange={v=>onChange('tenantMoveInDate',v,'rights')}/><InputGroup label="보증금" type="number" value={r.tenantDeposit} onChange={v=>onChange('tenantDeposit',v,'rights')}/></div></div><div className="flex justify-end pt-4"><SaveButton onClick={onSave}/></div></div>; }
-function FieldTab({ item, onChange, onSave }) { const c=item.checklists||{}; const [loading,setLoading]=useState(false); const handleAi=async()=>{setLoading(true);const res=await callGemini(`임장 분석: ${JSON.stringify(c)}, 메모: ${item.fieldNote}`);onChange('aiFieldAnalysis',res);setLoading(false);}; return <div className="space-y-6"><div className="grid grid-cols-2 gap-4"><div><h3 className="font-bold mb-2">체크리스트</h3>{['leak','sunlight','parking','managementFee'].map(k=><div key={k} onClick={()=>onChange(k,!c[k],'checklists')} className={`p-3 border rounded mb-2 cursor-pointer ${c[k]?'bg-indigo-50':''}`}>{k}</div>)}</div><textarea className="w-full h-40 border rounded p-2" value={item.fieldNote||''} onChange={e=>onChange('fieldNote',e.target.value)}/></div><div className="bg-indigo-50 p-4 rounded"><button onClick={handleAi} disabled={loading} className="bg-indigo-600 text-white px-2 py-1 rounded text-xs mb-2">AI 분석</button><p className="text-sm">{item.aiFieldAnalysis}</p></div><div className="flex justify-end pt-4"><SaveButton onClick={onSave}/></div></div>; }
 
-// --- [강화된 수익률 계산기] ---
+function FieldTab({ item, onChange, onSave }) { 
+  const c = item.checklists || {}; 
+  const [loading, setLoading] = useState(false); 
+  const handleAi = async () => { 
+    setLoading(true); 
+    const res = await callGemini(`임장 분석: ${JSON.stringify(c)}, 메모: ${item.fieldNote}`); 
+    onChange('aiFieldAnalysis', res); 
+    setLoading(false); 
+  }; 
+  
+  const handleCheck = (key, value) => {
+    onChange(key, value, 'checklists');
+  }
+
+  return (
+    <div className="space-y-8">
+      {/* 1. 점유 현황 및 관리 상태 */}
+      <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+        <h3 className="font-bold text-slate-800 mb-4 flex items-center"><User className="w-5 h-5 mr-2 text-indigo-600"/>1. 점유 및 관리 상태</h3>
+        <div className="grid grid-cols-2 gap-6">
+           <InputGroup label="점유자 파악" type="select" options={['미확인', '공실', '소유자 거주', '임차인 거주', '무단 점유']} value={c.occupancyStatus} onChange={v=>handleCheck('occupancyStatus', v)}/>
+           <InputGroup label="계량기 상태" type="select" options={['미확인', '정상 작동', '멈춤 (공실 예상)']} value={c.meterStatus} onChange={v=>handleCheck('meterStatus', v)}/>
+           <div className="col-span-2 grid grid-cols-2 gap-4">
+             <label className="flex items-center space-x-2 p-3 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50">
+               <input type="checkbox" checked={c.isDoorLocked} onChange={e=>handleCheck('isDoorLocked', e.target.checked)} className="w-5 h-5 text-indigo-600 rounded"/>
+               <span className="text-sm font-medium">현관문 잠김 (번호키/열쇠)</span>
+             </label>
+             <label className="flex items-center space-x-2 p-3 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50">
+               <input type="checkbox" checked={c.mailboxStatus === 'full'} onChange={e=>handleCheck('mailboxStatus', e.target.checked ? 'full' : 'empty')} className="w-5 h-5 text-indigo-600 rounded"/>
+               <span className="text-sm font-medium">우편물 쌓임 (장기 부재 예상)</span>
+             </label>
+           </div>
+        </div>
+      </div>
+
+      {/* 2. 물리적 하자 및 입지 */}
+      <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+        <h3 className="font-bold text-slate-800 mb-4 flex items-center"><Home className="w-5 h-5 mr-2 text-indigo-600"/>2. 건물 상태 및 입지</h3>
+        <div className="grid grid-cols-2 gap-4 mb-4">
+           {[['leak', '누수 흔적 (천장/베란다)'], ['cracks', '벽체/바닥 균열'], ['mold', '결로 및 곰팡이'], ['elevator', '엘리베이터 유무']].map(([k, l]) => (
+             <label key={k} className="flex items-center space-x-2 p-3 bg-white rounded-xl border border-slate-200 cursor-pointer hover:bg-slate-50">
+               <input type="checkbox" checked={c[k]} onChange={e=>handleCheck(k, e.target.checked)} className="w-5 h-5 text-indigo-600 rounded"/>
+               <span className="text-sm font-medium">{l}</span>
+             </label>
+           ))}
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+           <InputGroup label="일조량 (방향)" type="select" options={['미확인', '남향 (좋음)', '동향 (보통)', '서향 (오후)', '북향 (나쁨)']} value={c.sunlight} onChange={v=>handleCheck('sunlight', v)}/>
+           <InputGroup label="주차 공간" type="select" options={['미확인', '여유', '보통', '협소 (이중주차)']} value={c.parking} onChange={v=>handleCheck('parking', v)}/>
+        </div>
+      </div>
+
+      {/* 3. 시세 조사 */}
+      <div className="bg-slate-50 p-6 rounded-2xl border border-slate-100">
+        <h3 className="font-bold text-slate-800 mb-4 flex items-center"><TrendingUp className="w-5 h-5 mr-2 text-indigo-600"/>3. 시세 조사 (부동산 방문)</h3>
+        <div className="grid grid-cols-2 gap-4">
+           <InputGroup label="매물 호가" placeholder="예: 3억 5천" value={c.marketPrice} onChange={v=>handleCheck('marketPrice', v)}/>
+           <InputGroup label="급매가" placeholder="예: 3억 2천" value={c.forcedSalePrice} onChange={v=>handleCheck('forcedSalePrice', v)}/>
+           <InputGroup label="실거래가 (최근)" placeholder="예: 3억 3천" value={c.transactionPrice} onChange={v=>handleCheck('transactionPrice', v)}/>
+           <InputGroup label="미납 관리비" placeholder="예: 50만원" value={c.managementFee} onChange={v=>handleCheck('managementFee', v)}/>
+        </div>
+      </div>
+
+      {/* 메모 및 AI 분석 */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div>
+            <h3 className="font-bold mb-4 text-slate-700">현장 메모</h3>
+            <textarea className="w-full h-40 border border-slate-200 rounded-xl p-4 focus:ring-2 focus:ring-indigo-500 outline-none resize-none bg-white" placeholder="중개사님 코멘트, 현장 특이사항 등을 기록하세요." value={item.fieldNote||''} onChange={e => onChange('fieldNote', e.target.value)}/>
+        </div>
+        <div className="bg-indigo-50 p-6 rounded-2xl border border-indigo-100 flex flex-col">
+            <div className="flex justify-between mb-4">
+                <h3 className="font-bold text-indigo-900 flex items-center"><Sparkles className="w-5 h-5 mr-2 text-indigo-600"/>AI 종합 분석</h3>
+                <button onClick={handleAi} disabled={loading} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-xs hover:bg-indigo-700 transition-colors disabled:bg-indigo-400">{loading?'분석 중...':'✨ 분석 실행'}</button>
+            </div>
+            <textarea className="w-full flex-1 bg-white/50 border border-indigo-200 rounded-xl p-4 text-sm" value={item.aiFieldAnalysis||''} onChange={e => onChange('aiFieldAnalysis', e.target.value)} placeholder="위 체크리스트 내용을 바탕으로 AI가 임장 보고서를 작성해줍니다."/>
+        </div>
+      </div>
+      
+      <div className="flex justify-end pt-4 border-t"><SaveButton onClick={onSave}/></div>
+    </div>
+  ); 
+}
+
 function CalcTab({ item, onChange, onSave }) {
   const f = item.financials || {};
   const [loading, setLoading] = useState(false);
