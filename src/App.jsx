@@ -3,7 +3,7 @@ import {
   Gavel, Home, Calculator, ClipboardList, Calendar, AlertTriangle, 
   CheckCircle2, Plus, Trash2, Save, ArrowLeft, Search, ExternalLink, 
   MapPin, Sparkles, Bot, LogIn, LogOut, Lock, User, FileSearch, Download, TrendingUp,
-  Scale, Briefcase, Building2, Clock, Map, RefreshCw, X, ChevronRight,
+  Scale, Briefcase, Building2, Clock, RefreshCw, X, ChevronRight,
   Landmark
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
