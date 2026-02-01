@@ -3,7 +3,8 @@ import {
   Gavel, Home, Calculator, ClipboardList, Calendar, AlertTriangle, 
   CheckCircle2, Plus, Trash2, Save, ArrowLeft, Search, ExternalLink, 
   MapPin, Sparkles, Bot, LogIn, LogOut, Lock, User, FileSearch, Download, TrendingUp,
-  Scale, Briefcase, Building2, Clock, Map, RefreshCw, X, ChevronRight
+  Scale, Briefcase, Building2, Clock, Map, RefreshCw, X, ChevronRight,
+  Landmark
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { 
@@ -25,7 +26,7 @@ import {
 // 예시: const ALLOWED_EMAIL = "honggildong@gmail.com";
 const ALLOWED_EMAIL = ""; 
 
-// 🟡 [선택] AI 기능을 쓰려면 Gemini API 키를 넣어주세요. (없으면 비워두세요)
+// 🟡 [선택] AI 기능을 쓰려면 Gemini API 키를 넣어주세요.
 const apiKey = "AIzaSyB2Ni95d2qjT8VjA0d4-Hll4y-SswvwFf4"; 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -186,7 +187,7 @@ export default function AuctionManager() {
           sellPrice: '', monthlyRent: '', deposit: '',
           sellerType: 'individual', isSmallSize: true, holdingPeriod: 1 
         },
-        aiFieldAnalysis: '', aiStrategy: ''
+        aiFieldAnalysis: newItem.aiFieldAnalysis || '', aiStrategy: ''
       });
       setView('list');
       alert("성공적으로 등록되었습니다!");
@@ -204,6 +205,7 @@ export default function AuctionManager() {
     if (selectedItem?.id === id) { setView('list'); setSelectedItem(null); }
   };
 
+  // 수동 등록 시 사용
   const handleImportParsedItem = (parsedItem) => {
     const isDuplicate = items.some(i => 
       i.caseNumber === parsedItem.caseNo && 
@@ -218,14 +220,14 @@ export default function AuctionManager() {
     const newItem = {
       caseNumber: parsedItem.caseNo,
       itemNumber: parsedItem.itemNo || '1',
-      court: parsedItem.deptInfo || '', 
+      court: parsedItem.deptInfo.split('\n')[0] || '', 
       auctionStatus: parsedItem.status || '', 
       type: parsedItem.usage || '기타',
       address: parsedItem.address,
       appraisalPrice: parsedItem.appraisalPrice.replace(/[^0-9]/g, ''),
-      minPrice: parsedItem.minPrice.split(' ')[0].replace(/[^0-9]/g, ''),
-      biddingDate: '',
-      fieldNote: `[가져온 데이터]\n${parsedItem.details}\n${parsedItem.remark}`,
+      minPrice: parsedItem.minPrice.replace(/[^0-9]/g, ''),
+      biddingDate: parsedItem.biddingDate || '', 
+      fieldNote: `[비고]\n${parsedItem.remark}\n\n[상세 내역]\n${parsedItem.details}`,
       aiFieldAnalysis: parsedItem.aiChecklist ? `[AI 체크리스트]\n${parsedItem.aiChecklist}` : ''
     };
     handleAddItem(newItem);
@@ -299,7 +301,7 @@ function SidebarItem({ icon: Icon, label, active, onClick }) {
   return <button onClick={onClick} className={`w-full flex items-center justify-center lg:justify-start p-3 rounded-xl transition-colors ${active ? 'bg-indigo-50 text-indigo-600 font-bold' : 'text-slate-500 hover:bg-slate-50'}`}><Icon className="w-6 h-6" /> <span className="hidden lg:block ml-3 font-medium">{label}</span></button>;
 }
 
-// --- AI 간편 분석 뷰 ---
+// --- AI 간편 분석 뷰 (HTML 파싱 로직 개선) ---
 function QuickAnalysisView({ onImport, user, items }) {
   const [htmlInput, setHtmlInput] = useState("");
   const [parsedItems, setParsedItems] = useState([]);
@@ -331,38 +333,62 @@ function QuickAnalysisView({ onImport, user, items }) {
       rows.forEach((row) => {
         const caseTd = row.querySelector('[data-col_id="printCsNo"]');
         const addressTd = row.querySelector('[data-col_id="printSt"]');
+        
+        // 1번째 줄 데이터 파싱 (사건번호가 있는 행)
         if (caseTd && caseTd.textContent.trim() !== "") {
-          const caseNo = caseTd.textContent.trim().replace(/\s+/g, ' ');
+          const caseNoRaw = caseTd.textContent.trim();
+          // 사건번호 추출 (공백 정리)
+          const caseNo = caseNoRaw.replace(/\s+/g, ' ').replace(' ', '\n').split('\n').join(' '); 
           const itemNo = row.querySelector('[data-col_id="maemulSer"]')?.textContent.trim() || "1";
           
+          const deptText = row.querySelector('[data-col_id="jpDeptNm"]')?.textContent.trim() || "";
+          const dateMatch = deptText.match(/(\d{4})\.(\d{2})\.(\d{2})/);
+          const biddingDate = dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : "";
+
+          // HTML 태그가 포함된 비고란 처리
+          const remarkHtml = row.querySelector('[data-col_id="mulBigo"]')?.innerHTML || "-";
+          const remark = remarkHtml.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, '').trim();
+
+          // 상세 주소 및 내역
+          const address = addressTd?.querySelector('a')?.textContent.trim() || addressTd?.textContent.trim().split('[')[0] || "";
+          const details = addressTd?.querySelector('text')?.textContent.trim() || addressTd?.textContent.trim().match(/\[(.*?)\]/)?.[0] || "";
+
           currentItem = {
             id: `${caseNo.replace(/[^0-9a-zA-Z]/g, '')}_${itemNo}`,
             caseNo: caseNo,
             itemNo: itemNo,
-            address: addressTd?.querySelector('a')?.textContent.trim() || addressTd?.textContent.trim().split('[')[0] || "",
-            details: addressTd?.querySelector('text')?.textContent.trim() || addressTd?.textContent.trim().match(/\[(.*?)\]/)?.[0] || "",
-            remark: row.querySelector('[data-col_id="mulBigo"]')?.textContent.trim() || "-",
+            address: address,
+            details: details,
+            remark: remark,
             appraisalPrice: row.querySelector('[data-col_id="gamevalAmt"]')?.textContent.trim() || "0",
-            deptInfo: row.querySelector('[data-col_id="jpDeptNm"]')?.textContent.trim() || "",
+            deptInfo: deptText,
+            biddingDate: biddingDate,
+            // 2번째 줄 데이터 초기화
             usage: "", minPrice: "", status: "", priorityScore: 100, aiChecklist: null,
             createdAt: serverTimestamp()
           };
           newItems.push(currentItem);
         } else if (currentItem) {
+          // 2번째 줄 데이터 파싱 (같은 물건의 하단 정보)
           const usage = row.querySelector('[data-col_id="dspslUsgNm"]')?.textContent.trim();
-          const minPrice = row.querySelector('[data-col_id="notifyMinmaePrice1"]')?.textContent.trim();
+          const minPriceRaw = row.querySelector('[data-col_id="notifyMinmaePrice1"]')?.textContent.trim();
           const status = row.querySelector('[data-col_id="yuchalCnt"]')?.textContent.trim();
+          
           if (usage) currentItem.usage = usage;
-          if (minPrice) {
-            currentItem.minPrice = minPrice.replace(/\s+/g, ' ');
-            const pctMatch = minPrice.match(/\((\d+)%\)/);
+          if (minPriceRaw) {
+            // 최저가와 비율 분리
+            // 예: "65,000<br>(5%)" -> "65,000", 5
+            const priceText = minPriceRaw.split('(')[0].trim();
+            currentItem.minPrice = priceText;
+            
+            const pctMatch = minPriceRaw.match(/\((\d+)%\)/);
             if (pctMatch) currentItem.priorityScore = parseInt(pctMatch[1]);
           }
           if (status) currentItem.status = status;
         }
       });
 
-      if (newItems.length === 0) return alert("경매 데이터를 찾지 못했습니다.");
+      if (newItems.length === 0) return alert("경매 데이터를 찾지 못했습니다. 올바른 테이블 HTML인지 확인해주세요.");
       
       if (user) {
         await Promise.all(newItems.map(item => 
@@ -444,6 +470,8 @@ function QuickAnalysisView({ onImport, user, items }) {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {parsedItems.map(item => {
               const isRegistered = items.some(i => i.caseNumber === item.caseNo && String(i.itemNumber || '1') === String(item.itemNo || '1'));
+              const dday = getDdayString(item.biddingDate);
+
               return (
               <div key={item.id} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col relative group">
                 <button onClick={() => deleteAnalyzedItem(item.id)} className="absolute top-4 right-4 p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors opacity-0 group-hover:opacity-100"><X className="w-5 h-5"/></button>
@@ -452,10 +480,23 @@ function QuickAnalysisView({ onImport, user, items }) {
                   {item.priorityScore <= 50 && <span className="bg-red-100 text-red-600 text-[10px] font-bold px-2 py-1 rounded animate-pulse">🔥 BEST DEAL</span>}
                 </div>
                 <h3 className="font-bold text-slate-900 mb-2 leading-tight min-h-[3rem]">{item.address}</h3>
+                
+                <div className="flex justify-between items-center mb-4">
+                     <span className={`text-xs font-bold px-2 py-0.5 rounded ${dday.bg} ${dday.color}`}>{dday.text} ({item.biddingDate})</span>
+                     <span className="text-[10px] text-slate-400">{item.deptInfo.split('\n')[0]}</span>
+                </div>
+
                 <div className="space-y-2 mb-6">
                   <div className="flex justify-between text-xs"><span className="text-slate-400">감정가</span><span className="font-bold">{item.appraisalPrice}</span></div>
-                  <div className="flex justify-between items-center bg-slate-50 p-3 rounded-xl"><span className="text-slate-500 text-xs font-bold">최저가 ({item.priorityScore}%)</span><span className="text-indigo-600 font-black text-lg">{item.minPrice.split(' ')[0]}</span></div>
+                  <div className="flex justify-between items-center bg-slate-50 p-3 rounded-xl"><span className="text-slate-500 text-xs font-bold">최저가 ({item.priorityScore}%)</span><span className="text-indigo-600 font-black text-lg">{item.minPrice}</span></div>
                 </div>
+                
+                {item.remark && item.remark !== '-' && (
+                    <div className="mb-4 bg-yellow-50 p-3 rounded-xl border border-yellow-100 text-xs text-yellow-800 break-keep">
+                        <span className="font-bold mr-1">⚠️ 특이사항:</span>{item.remark.length > 50 ? item.remark.slice(0,50)+'...' : item.remark}
+                    </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-2 mb-4">
                   <button onClick={()=>analyzeItemAI(item)} disabled={isAnalyzing} className="bg-gradient-to-r from-indigo-500 to-purple-500 text-white text-xs font-bold py-3 rounded-xl hover:opacity-90 transition-all flex justify-center items-center gap-1">{isAnalyzing?'...':'✨ AI 투자 분석'}</button>
                   <a href={`https://map.naver.com/v5/search/${encodeURIComponent(item.address)}`} target="_blank" rel="noreferrer" className="bg-slate-800 text-white text-xs font-bold py-3 rounded-xl hover:bg-slate-700 transition-all flex justify-center items-center gap-1">지도 보기</a>
