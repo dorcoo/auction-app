@@ -3,7 +3,7 @@ import {
   Gavel, Home, Calculator, ClipboardList, Calendar, AlertTriangle, 
   CheckCircle2, Plus, Trash2, Save, ArrowLeft, Search, ExternalLink, 
   MapPin, Sparkles, Bot, LogIn, LogOut, Lock, User, FileSearch, Download, TrendingUp,
-  Scale, Briefcase, Building2, Clock, Map
+  Scale, Briefcase, Building2, Clock, Map, RefreshCw, X, ChevronRight
 } from 'lucide-react';
 import { initializeApp } from "firebase/app";
 import { 
@@ -16,8 +16,8 @@ import {
   signOut
 } from "firebase/auth";
 import { 
-  getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, 
-  onSnapshot, query, serverTimestamp 
+  getFirestore, collection, addDoc, updateDoc, deleteDoc, doc, setDoc,
+  onSnapshot, query, serverTimestamp, orderBy 
 } from "firebase/firestore";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -158,30 +158,15 @@ export default function AuctionManager() {
   const handleAddItem = async (newItem) => {
     if (!user) return;
     try {
-      // 4가지 카테고리로 세분화된 체크리스트 초기값
       const initialChecklist = {
         // 1. 점유 현황
-        occupancyStatus: '', // 공실, 소유자, 임차인
-        isDoorLocked: false, // 문 잠김 여부
-        mailboxStatus: '', // 우편물 상태 (쌓임, 깨끗함)
-        meterStatus: '', // 계량기 (돌아감, 멈춤)
-        
+        occupancyStatus: '', isDoorLocked: false, mailboxStatus: '', meterStatus: '',
         // 2. 물리적 하자
-        leak: false, // 누수 흔적
-        cracks: false, // 벽체 균열
-        mold: false, // 곰팡이
-        sunlight: '', // 일조량 (좋음, 보통, 나쁨)
-        
-        // 3. 편의 시설
-        parking: '', // 주차 공간 (여유, 부족)
-        elevator: false, // 엘리베이터 유무
-        publicTransport: '', // 대중교통 접근성
-        
+        leak: false, cracks: false, mold: false, sunlight: '',
+        // 3. 입지/편의
+        parking: '', elevator: false, transport: '',
         // 4. 시세 조사
-        marketPrice: '', // 부동산 매물 호가
-        transactionPrice: '', // 실거래가
-        forcedSalePrice: '', // 급매가
-        managementFee: '', // 미납 관리비
+        marketPrice: '', transactionPrice: '', forcedSalePrice: '', managementFee: '',
       };
 
       await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'auction_items'), {
@@ -189,18 +174,22 @@ export default function AuctionManager() {
         createdAt: serverTimestamp(), 
         status: '관심',
         checklists: initialChecklist,
-        rights: { malsoDate: '', tenantMoveInDate: '', tenantFixDate: '', tenantDeposit: '', isDangerous: false },
+        rights: { 
+          malsoDate: '', tenantMoveInDate: '', tenantFixDate: '', tenantDeposit: '', 
+          auctionType: '임의경매', // 기본값
+          claimAmount: '', // 청구금액
+          dividendDeadline: '' // 배당요구종기일
+        },
         financials: { 
           expectedBidPrice: '', acquisitionTaxRate: 1.1, legalCost: '', repairCost: '', movingCost: '', 
           loanAmount: '', loanRate: 4.5, 
           sellPrice: '', monthlyRent: '', deposit: '',
-          sellerType: 'individual', 
-          isSmallSize: true, 
-          holdingPeriod: 1 
+          sellerType: 'individual', isSmallSize: true, holdingPeriod: 1 
         },
         aiFieldAnalysis: '', aiStrategy: ''
       });
       setView('list');
+      alert("성공적으로 등록되었습니다!");
     } catch (error) { alert("저장 실패: " + error.message); }
   };
 
@@ -216,20 +205,30 @@ export default function AuctionManager() {
   };
 
   const handleImportParsedItem = (parsedItem) => {
+    const isDuplicate = items.some(i => 
+      i.caseNumber === parsedItem.caseNo && 
+      String(i.itemNumber || '1') === String(parsedItem.itemNo || '1')
+    );
+
+    if (isDuplicate) {
+        alert("이미 '내 물건 관리'에 등록된 사건입니다.");
+        return;
+    }
+
     const newItem = {
       caseNumber: parsedItem.caseNo,
       itemNumber: parsedItem.itemNo || '1',
-      court: parsedItem.deptInfo || '', // 관할법원 
-      auctionStatus: parsedItem.status || '', // 현재상태 (유찰 등)
+      court: parsedItem.deptInfo || '', 
+      auctionStatus: parsedItem.status || '', 
       type: parsedItem.usage || '기타',
       address: parsedItem.address,
       appraisalPrice: parsedItem.appraisalPrice.replace(/[^0-9]/g, ''),
       minPrice: parsedItem.minPrice.split(' ')[0].replace(/[^0-9]/g, ''),
       biddingDate: '',
       fieldNote: `[가져온 데이터]\n${parsedItem.details}\n${parsedItem.remark}`,
+      aiFieldAnalysis: parsedItem.aiChecklist ? `[AI 체크리스트]\n${parsedItem.aiChecklist}` : ''
     };
     handleAddItem(newItem);
-    alert("내 물건 리스트에 추가되었습니다! 입찰 기일을 입력해주세요.");
   };
 
   if (!user && !loading) return <LoginScreen authError={authError} onGoogleLogin={handleGoogleLogin} onGuestLogin={handleGuestLogin} />;
@@ -243,7 +242,7 @@ export default function AuctionManager() {
         {view === 'list' && <ItemList items={items} onItemSelect={(item)=>{setSelectedItem(item); setView('detail');}} onAddClick={()=>setView('add')} />}
         {view === 'add' && <AddItemForm onCancel={()=>setView('list')} onSave={handleAddItem} />}
         {view === 'detail' && selectedItem && <ItemDetail item={selectedItem} onBack={()=>setView('list')} onUpdate={handleUpdateItem} onDelete={handleDeleteItem} />}
-        {view === 'analysis' && <QuickAnalysisView onImport={handleImportParsedItem} />}
+        {view === 'analysis' && <QuickAnalysisView onImport={handleImportParsedItem} user={user} items={items} />}
       </main>
     </div>
   );
@@ -301,37 +300,54 @@ function SidebarItem({ icon: Icon, label, active, onClick }) {
 }
 
 // --- AI 간편 분석 뷰 ---
-function QuickAnalysisView({ onImport }) {
+function QuickAnalysisView({ onImport, user, items }) {
   const [htmlInput, setHtmlInput] = useState("");
   const [parsedItems, setParsedItems] = useState([]);
   const [aiModal, setAiModal] = useState({ show: false, title: "", content: "" });
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  const processInput = () => {
+  useEffect(() => {
+    if (!user) return;
+    const q = query(
+      collection(db, 'artifacts', appId, 'users', user.uid, 'analyzed_items'),
+      orderBy('createdAt', 'desc')
+    );
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const fetchedItems = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setParsedItems(fetchedItems);
+    });
+    return () => unsubscribe();
+  }, [user]);
+
+  const processInput = async () => {
     if (!htmlInput.trim()) return alert("HTML 소스를 입력해주세요.");
     try {
       const parser = new DOMParser();
       const doc = parser.parseFromString(htmlInput, 'text/html');
       const rows = doc.querySelectorAll('tr');
-      const items = [];
+      const newItems = [];
       let currentItem = null;
 
       rows.forEach((row) => {
         const caseTd = row.querySelector('[data-col_id="printCsNo"]');
         const addressTd = row.querySelector('[data-col_id="printSt"]');
         if (caseTd && caseTd.textContent.trim() !== "") {
+          const caseNo = caseTd.textContent.trim().replace(/\s+/g, ' ');
+          const itemNo = row.querySelector('[data-col_id="maemulSer"]')?.textContent.trim() || "1";
+          
           currentItem = {
-            id: Math.random().toString(36).substr(2, 9),
-            caseNo: caseTd.textContent.trim().replace(/\s+/g, ' '),
-            itemNo: row.querySelector('[data-col_id="maemulSer"]')?.textContent.trim() || "",
+            id: `${caseNo.replace(/[^0-9a-zA-Z]/g, '')}_${itemNo}`,
+            caseNo: caseNo,
+            itemNo: itemNo,
             address: addressTd?.querySelector('a')?.textContent.trim() || addressTd?.textContent.trim().split('[')[0] || "",
             details: addressTd?.querySelector('text')?.textContent.trim() || addressTd?.textContent.trim().match(/\[(.*?)\]/)?.[0] || "",
             remark: row.querySelector('[data-col_id="mulBigo"]')?.textContent.trim() || "-",
             appraisalPrice: row.querySelector('[data-col_id="gamevalAmt"]')?.textContent.trim() || "0",
             deptInfo: row.querySelector('[data-col_id="jpDeptNm"]')?.textContent.trim() || "",
-            usage: "", minPrice: "", status: "", priorityScore: 100, aiChecklist: null
+            usage: "", minPrice: "", status: "", priorityScore: 100, aiChecklist: null,
+            createdAt: serverTimestamp()
           };
-          items.push(currentItem);
+          newItems.push(currentItem);
         } else if (currentItem) {
           const usage = row.querySelector('[data-col_id="dspslUsgNm"]')?.textContent.trim();
           const minPrice = row.querySelector('[data-col_id="notifyMinmaePrice1"]')?.textContent.trim();
@@ -345,10 +361,27 @@ function QuickAnalysisView({ onImport }) {
           if (status) currentItem.status = status;
         }
       });
-      if (items.length === 0) return alert("경매 데이터를 찾지 못했습니다.");
-      setParsedItems(items);
+
+      if (newItems.length === 0) return alert("경매 데이터를 찾지 못했습니다.");
+      
+      if (user) {
+        await Promise.all(newItems.map(item => 
+          setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'analyzed_items', item.id), item)
+        ));
+      }
+
+      setHtmlInput("");
+      alert(`${newItems.length}건이 분석되어 리스트에 저장되었습니다.`);
+
     } catch (err) { alert("분석 중 오류 발생: " + err.message); }
   };
+
+  const deleteAnalyzedItem = async (id) => {
+    if (!confirm("이 분석 내역을 삭제하시겠습니까?")) return;
+    if (user) {
+        await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'analyzed_items', id));
+    }
+  }
 
   const analyzeItemAI = async (item) => {
     setIsAnalyzing(true);
@@ -362,7 +395,12 @@ function QuickAnalysisView({ onImport }) {
     setIsAnalyzing(true);
     const prompt = `물건: ${item.address} (용도: ${item.usage}, 상세: ${item.details})\n\n이 경매 물건의 입찰을 고민하는 사람을 위한 '맞춤형 체크리스트' 5가지를 작성해줘.`;
     const res = await callGemini(prompt);
-    setParsedItems(prev => prev.map(p => p.id === item.id ? { ...p, aiChecklist: res } : p));
+    
+    if (user) {
+        await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'analyzed_items', item.id), {
+            aiChecklist: res
+        });
+    }
     setIsAnalyzing(false);
   };
 
@@ -384,7 +422,7 @@ function QuickAnalysisView({ onImport }) {
             <span className="bg-gradient-to-r from-indigo-500 to-purple-500 text-white p-2 rounded-xl"><Sparkles className="w-6 h-6"/></span>
             Auction AI Pro
           </h1>
-          <p className="text-slate-500 text-sm mt-1">HTML 소스를 붙여넣으면 Gemini가 자동으로 분석합니다.</p>
+          <p className="text-slate-500 text-sm mt-1">HTML 소스를 붙여넣으면 자동 분석 후 <b>영구 저장</b>됩니다.</p>
         </div>
       </div>
       <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-200 mb-8">
@@ -394,19 +432,22 @@ function QuickAnalysisView({ onImport }) {
           className="w-full h-32 p-4 rounded-xl border border-slate-200 bg-slate-50 focus:ring-2 focus:ring-indigo-500 outline-none text-xs font-mono mb-4 resize-none"
         />
         <button onClick={processInput} className="w-full bg-gradient-to-r from-indigo-600 to-purple-600 hover:opacity-90 text-white py-3 rounded-xl font-bold text-lg shadow-lg transition-all flex items-center justify-center gap-2">
-          <Search className="w-5 h-5"/> 데이터 분석 및 리스트 생성
+          <Search className="w-5 h-5"/> 데이터 분석 및 리스트 저장
         </button>
       </div>
       {parsedItems.length > 0 && (
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="flex justify-between items-center mb-6 bg-slate-900 text-white p-4 rounded-xl shadow-lg">
-            <div className="font-bold flex items-center gap-2"><div className="bg-indigo-500 p-1.5 rounded-lg"><ClipboardList className="w-4 h-4"/></div> 총 {parsedItems.length}건 분석됨</div>
+            <div className="font-bold flex items-center gap-2"><div className="bg-indigo-500 p-1.5 rounded-lg"><ClipboardList className="w-4 h-4"/></div> 분석 보관함 ({parsedItems.length}건)</div>
             <button onClick={analyzeAllAI} disabled={isAnalyzing} className="bg-white text-slate-900 px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-100 transition-colors flex items-center gap-2">{isAnalyzing ? '분석 중...' : '✨ AI 전체 종합 분석'}</button>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {parsedItems.map(item => (
-              <div key={item.id} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col">
-                <div className="flex justify-between items-start mb-4">
+            {parsedItems.map(item => {
+              const isRegistered = items.some(i => i.caseNumber === item.caseNo && String(i.itemNumber || '1') === String(item.itemNo || '1'));
+              return (
+              <div key={item.id} className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 hover:shadow-xl hover:-translate-y-1 transition-all flex flex-col relative group">
+                <button onClick={() => deleteAnalyzedItem(item.id)} className="absolute top-4 right-4 p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-full transition-colors opacity-0 group-hover:opacity-100"><X className="w-5 h-5"/></button>
+                <div className="flex justify-between items-start mb-4 pr-8">
                   <div><span className="text-xs font-black text-slate-400 block mb-1">{item.caseNo}</span><span className="text-sm font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">물건 {item.itemNo}</span></div>
                   {item.priorityScore <= 50 && <span className="bg-red-100 text-red-600 text-[10px] font-bold px-2 py-1 rounded animate-pulse">🔥 BEST DEAL</span>}
                 </div>
@@ -426,9 +467,18 @@ function QuickAnalysisView({ onImport }) {
                   </div>
                 )}
                 {!item.aiChecklist && <button onClick={()=>generateChecklistAI(item)} disabled={isAnalyzing} className="w-full border-2 border-dashed border-slate-200 text-slate-400 text-xs font-bold py-2 rounded-xl mb-4 hover:border-indigo-300 hover:text-indigo-500 transition-all">AI 체크리스트 생성</button>}
-                <button onClick={() => onImport(item)} className="w-full mt-auto bg-white border border-slate-200 text-slate-700 font-bold py-3 rounded-xl hover:bg-slate-50 transition-all flex justify-center items-center gap-2"><Plus className="w-4 h-4"/> 내 물건으로 등록</button>
+                
+                {isRegistered ? (
+                     <button disabled className="w-full mt-auto bg-slate-100 border border-slate-200 text-slate-400 font-bold py-3 rounded-xl flex justify-center items-center gap-2 cursor-not-allowed">
+                        <CheckCircle2 className="w-4 h-4"/> 이미 등록됨
+                     </button>
+                ) : (
+                    <button onClick={() => onImport(item)} className="w-full mt-auto bg-white border border-slate-200 text-slate-700 font-bold py-3 rounded-xl hover:bg-slate-50 transition-all flex justify-center items-center gap-2">
+                        <Plus className="w-4 h-4"/> 내 물건으로 등록
+                    </button>
+                )}
               </div>
-            ))}
+            )})}
           </div>
         </div>
       )}
@@ -485,6 +535,7 @@ function ItemList({ items, onItemSelect, onAddClick }) {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filtered.map(i=>{
           const dday = getDdayString(i.biddingDate);
+          const financials = i.financials || {};
           return (
             <div key={i.id} onClick={()=>onItemSelect(i)} className="bg-white p-6 rounded-2xl border border-slate-100 hover:shadow-lg hover:border-indigo-200 cursor-pointer transition-all flex flex-col gap-3 relative group">
               <div className="flex justify-between items-start">
@@ -505,15 +556,25 @@ function ItemList({ items, onItemSelect, onAddClick }) {
             
               <p className="text-sm text-slate-600 truncate">{i.address}</p>
               
-              <div className="flex justify-between items-end text-sm border-t border-slate-50 pt-4 mt-auto">
-                <div>
-                    <div className="text-xs text-slate-400 mb-0.5">감정가</div>
-                    <div className="font-bold text-slate-800">{formatCurrency(i.appraisalPrice)}</div>
-                </div>
-                <div className="text-right">
-                    <div className="text-xs text-slate-400 mb-0.5">입찰기일</div>
-                    <span className={`font-bold px-2 py-0.5 rounded ${dday.bg} ${dday.color}`}>{dday.text}</span>
-                </div>
+              <div className="grid grid-cols-2 gap-2 mt-auto pt-3 border-t border-slate-50">
+                  <div>
+                    <p className="text-[10px] text-slate-400">감정가</p>
+                    <p className="text-sm font-medium text-slate-600 decoration-slate-300 decoration-1 line-through">{formatCurrency(i.appraisalPrice)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] text-slate-400">최저가 (현재)</p>
+                    <p className="text-lg font-black text-indigo-600">{formatCurrency(i.minPrice)}</p>
+                  </div>
+                  {/* 내가 예상 낙찰가를 적었다면 표시 */}
+                  {financials.expectedBidPrice && (
+                    <div className="col-span-2 bg-green-50 px-3 py-2 rounded-lg flex justify-between items-center mt-1">
+                         <span className="text-[10px] font-bold text-green-700">🎯 내 입찰 예정가</span>
+                         <span className="text-sm font-black text-green-800">{formatCurrency(financials.expectedBidPrice)}원</span>
+                    </div>
+                  )}
+                  <div className="col-span-2 flex justify-end mt-2">
+                       <span className={`text-xs font-bold px-2 py-0.5 rounded ${dday.bg} ${dday.color}`}>{dday.text}</span>
+                  </div>
               </div>
               
               <button 
@@ -574,7 +635,68 @@ function ItemDetail({ item, onBack, onUpdate, onDelete }) {
   return (<div className="h-full flex flex-col bg-slate-50"><div className="bg-white px-8 py-4 border-b flex justify-between items-center"><div className="flex items-center gap-4"><button onClick={onBack}><ArrowLeft/></button><div><h1 className="font-bold text-xl">{local.caseNumber} <span className="text-sm font-normal text-slate-500">[{local.itemNumber || '1'}]</span></h1><p className="text-sm text-slate-500">{local.address}</p></div></div><div className="flex gap-2"><select value={local.status} onChange={e=>{handleChange('status',e.target.value);onUpdate(item.id,{...local,status:e.target.value})}} className="border rounded px-2"><option>관심</option><option>권리분석</option><option>임장중</option><option>입찰준비</option><option>낙찰</option><option>패찰</option></select><button onClick={()=>onDelete(item.id)} className="text-red-500 p-2"><Trash2/></button></div></div><div className="bg-white px-8 border-b flex gap-6">{[{id:'info',icon:Home,label:'정보'},{id:'rights',icon:AlertTriangle,label:'권리'},{id:'field',icon:MapPin,label:'임장'},{id:'calc',icon:Calculator,label:'수익'}].map(t=><button key={t.id} onClick={()=>setTab(t.id)} className={`py-3 flex items-center border-b-2 ${tab===t.id?'border-indigo-600 text-indigo-600 font-bold':'border-transparent text-slate-500'}`}><t.icon className="w-4 h-4 mr-2"/>{t.label}</button>)}</div><div className="flex-1 overflow-y-auto p-8"><div className="max-w-4xl mx-auto bg-white p-8 rounded-2xl border">{tab==='info'&&<InfoTab item={local} onChange={handleChange} onSave={()=>onUpdate(item.id,local)}/>}{tab==='rights'&&<RightsTab item={local} onChange={handleChange} onSave={()=>onUpdate(item.id,local)}/>}{tab==='field'&&<FieldTab item={local} onChange={handleChange} onSave={()=>onUpdate(item.id,local)}/>}{tab==='calc'&&<CalcTab item={local} onChange={handleChange} onSave={()=>onUpdate(item.id,local)}/>}</div></div></div>);
 }
 function InfoTab({ item, onChange, onSave }) { return <div className="space-y-6"><div className="grid grid-cols-2 gap-4"><InputGroup label="사건번호" value={item.caseNumber} onChange={v=>onChange('caseNumber',v)}/><InputGroup label="물건번호" value={item.itemNumber || '1'} onChange={v=>onChange('itemNumber',v)}/></div><div className="grid grid-cols-2 gap-4"><InputGroup label="관할법원" value={item.court} onChange={v=>onChange('court',v)}/><InputGroup label="현재상태" value={item.auctionStatus} onChange={v=>onChange('auctionStatus',v)}/></div><InputGroup label="종류" value={item.type} onChange={v=>onChange('type',v)} type="select" options={['아파트','빌라','오피스텔','상가','토지']}/><InputGroup label="주소" value={item.address} onChange={v=>onChange('address',v)}/><div className="grid grid-cols-2 gap-4"><InputGroup label="감정가" type="number" value={item.appraisalPrice} onChange={v=>onChange('appraisalPrice',v)}/><InputGroup label="최저가" type="number" value={item.minPrice} onChange={v=>onChange('minPrice',v)}/></div><InputGroup label="입찰일" type="date" value={item.biddingDate} onChange={v=>onChange('biddingDate',v)}/><div className="flex justify-between items-center pt-6 border-t"><div className="flex gap-2"><a href={`https://map.naver.com/v5/search/${encodeURIComponent(item.address)}`} target="_blank" rel="noreferrer" className="flex items-center px-4 py-2 bg-[#03C75A] text-white rounded-lg hover:opacity-90 text-sm font-bold"><MapPin className="w-4 h-4 mr-2"/>네이버 지도</a><a href="https://www.courtauction.go.kr/" target="_blank" rel="noreferrer" className="flex items-center px-4 py-2 bg-slate-800 text-white rounded-lg hover:opacity-90 text-sm font-bold"><Gavel className="w-4 h-4 mr-2"/>대법원 경매</a></div><SaveButton onClick={onSave}/></div></div>; }
-function RightsTab({ item, onChange, onSave }) { const r=item.rights||{}; return <div className="space-y-6"><div className="grid grid-cols-2 gap-6"><InputGroup label="말소기준" type="date" value={r.malsoDate} onChange={v=>onChange('malsoDate',v,'rights')}/><div className="space-y-2"><InputGroup label="전입일" type="date" value={r.tenantMoveInDate} onChange={v=>onChange('tenantMoveInDate',v,'rights')}/><InputGroup label="보증금" type="number" value={r.tenantDeposit} onChange={v=>onChange('tenantDeposit',v,'rights')}/></div></div><div className="flex justify-end pt-4"><SaveButton onClick={onSave}/></div></div>; }
+
+function RightsTab({ item, onChange, onSave }) { 
+  const r = item.rights || {}; 
+  const isSafe = r.malsoDate && r.tenantMoveInDate && new Date(r.tenantMoveInDate) > new Date(r.malsoDate);
+  const showSafeResult = r.malsoDate && r.tenantMoveInDate;
+
+  // 강제경매 & 소액청구 -> 취하 가능성 높음
+  const isCompulsory = r.auctionType === '강제경매';
+  const claimAmount = Number(r.claimAmount) || 0;
+  // 2천만원 미만을 소액으로 가정 (예시)
+  const isHighWithdrawalChance = isCompulsory && claimAmount > 0 && claimAmount < 20000000;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex justify-between items-center border-b pb-2"><h2 className="font-bold text-lg text-slate-800">권리 분석</h2></div>
+      
+      {/* 팁 영역 */}
+      {isHighWithdrawalChance && (
+        <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-blue-800 flex items-start mb-4">
+           <AlertTriangle className="w-5 h-5 mr-2 mt-0.5 shrink-0"/>
+           <div>
+             <span className="font-bold">💡 취하 가능성 높음</span>
+             <p className="text-xs mt-1">강제경매 사건이며 청구금액이 소액({formatCurrency(claimAmount)}원)입니다.<br/>채무자가 빚을 갚고 경매를 취하할 가능성이 있으니 입찰 전 등기부등본을 꼭 재확인하세요.</p>
+           </div>
+        </div>
+      )}
+
+      {showSafeResult && (
+        <div className={`p-5 rounded-xl border flex items-center ${!isSafe ? 'bg-red-50 border-red-200 text-red-700' : 'bg-green-50 border-green-200 text-green-700'}`}>
+            {!isSafe?<AlertTriangle className="mr-3"/>:<CheckCircle2 className="mr-3"/>}
+            <div>
+                <div className="font-bold">{!isSafe?'대항력 있음 (인수 위험)':'대항력 없음 (안전)'}</div>
+                <p className="text-xs opacity-80 mt-1">임차인의 전입일이 말소기준권리보다 {!isSafe ? '빠릅니다.' : '늦습니다.'}</p>
+            </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="bg-slate-50 p-6 rounded-2xl">
+            <h3 className="font-bold mb-4 text-slate-700 flex items-center"><Gavel className="w-4 h-4 mr-2"/>경매 정보</h3>
+            <div className="space-y-4">
+                <InputGroup label="경매 구분" type="select" options={['임의경매', '강제경매']} value={r.auctionType} onChange={v=>onChange('auctionType',v,'rights')}/>
+                <InputGroup label="청구 금액 (원)" type="number" value={r.claimAmount} onChange={v=>onChange('claimAmount',v,'rights')}/>
+                <InputGroup label="배당요구 종기일" type="date" value={r.dividendDeadline} onChange={v=>onChange('dividendDeadline',v,'rights')}/>
+            </div>
+        </div>
+        <div className="bg-slate-50 p-6 rounded-2xl">
+            <h3 className="font-bold mb-4 text-slate-700 flex items-center"><User className="w-4 h-4 mr-2"/>임차인 및 말소기준</h3>
+            <div className="space-y-4">
+                <InputGroup label="말소기준권리 (최선순위)" type="date" value={r.malsoDate} onChange={v=>onChange('malsoDate',v,'rights')}/>
+                <div className="pt-2 border-t border-slate-200">
+                    <InputGroup label="임차인 전입일" type="date" value={r.tenantMoveInDate} onChange={v=>onChange('tenantMoveInDate',v,'rights')}/>
+                    <InputGroup label="보증금 (원)" type="number" value={r.tenantDeposit} onChange={v=>onChange('tenantDeposit',v,'rights')}/>
+                    <InputGroup label="확정일자" type="date" value={r.tenantFixDate} onChange={v=>onChange('tenantFixDate',v,'rights')}/>
+                </div>
+            </div>
+        </div>
+      </div>
+      <div className="flex justify-end pt-4"><SaveButton onClick={onSave}/></div>
+    </div>
+  ); 
+}
 
 function FieldTab({ item, onChange, onSave }) { 
   const c = item.checklists || {}; 
