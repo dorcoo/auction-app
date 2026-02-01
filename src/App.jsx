@@ -158,11 +158,30 @@ export default function AuctionManager() {
   const handleAddItem = async (newItem) => {
     if (!user) return;
     try {
+      // 4가지 카테고리로 세분화된 체크리스트 초기값
       const initialChecklist = {
-        occupancyStatus: '', isDoorLocked: false, mailboxStatus: '', meterStatus: '',
-        leak: false, cracks: false, mold: false, sunlight: '',
-        parking: '', elevator: false, publicTransport: '',
-        marketPrice: '', transactionPrice: '', forcedSalePrice: '', managementFee: '',
+        // 1. 점유 현황
+        occupancyStatus: '', // 공실, 소유자, 임차인
+        isDoorLocked: false, // 문 잠김 여부
+        mailboxStatus: '', // 우편물 상태 (쌓임, 깨끗함)
+        meterStatus: '', // 계량기 (돌아감, 멈춤)
+        
+        // 2. 물리적 하자
+        leak: false, // 누수 흔적
+        cracks: false, // 벽체 균열
+        mold: false, // 곰팡이
+        sunlight: '', // 일조량 (좋음, 보통, 나쁨)
+        
+        // 3. 편의 시설
+        parking: '', // 주차 공간 (여유, 부족)
+        elevator: false, // 엘리베이터 유무
+        publicTransport: '', // 대중교통 접근성
+        
+        // 4. 시세 조사
+        marketPrice: '', // 부동산 매물 호가
+        transactionPrice: '', // 실거래가
+        forcedSalePrice: '', // 급매가
+        managementFee: '', // 미납 관리비
       };
 
       await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'auction_items'), {
@@ -175,7 +194,9 @@ export default function AuctionManager() {
           expectedBidPrice: '', acquisitionTaxRate: 1.1, legalCost: '', repairCost: '', movingCost: '', 
           loanAmount: '', loanRate: 4.5, 
           sellPrice: '', monthlyRent: '', deposit: '',
-          sellerType: 'individual', isSmallSize: true, holdingPeriod: 1 
+          sellerType: 'individual', 
+          isSmallSize: true, 
+          holdingPeriod: 1 
         },
         aiFieldAnalysis: '', aiStrategy: ''
       });
@@ -198,8 +219,8 @@ export default function AuctionManager() {
     const newItem = {
       caseNumber: parsedItem.caseNo,
       itemNumber: parsedItem.itemNo || '1',
-      court: parsedItem.deptInfo || '', 
-      auctionStatus: parsedItem.status || '', 
+      court: parsedItem.deptInfo || '', // 관할법원 
+      auctionStatus: parsedItem.status || '', // 현재상태 (유찰 등)
       type: parsedItem.usage || '기타',
       address: parsedItem.address,
       appraisalPrice: parsedItem.appraisalPrice.replace(/[^0-9]/g, ''),
@@ -464,7 +485,6 @@ function ItemList({ items, onItemSelect, onAddClick }) {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {filtered.map(i=>{
           const dday = getDdayString(i.biddingDate);
-          const financials = i.financials || {};
           return (
             <div key={i.id} onClick={()=>onItemSelect(i)} className="bg-white p-6 rounded-2xl border border-slate-100 hover:shadow-lg hover:border-indigo-200 cursor-pointer transition-all flex flex-col gap-3 relative group">
               <div className="flex justify-between items-start">
@@ -485,25 +505,15 @@ function ItemList({ items, onItemSelect, onAddClick }) {
             
               <p className="text-sm text-slate-600 truncate">{i.address}</p>
               
-              <div className="grid grid-cols-2 gap-2 mt-auto pt-3 border-t border-slate-50">
-                  <div>
-                    <p className="text-[10px] text-slate-400">감정가</p>
-                    <p className="text-sm font-medium text-slate-600 decoration-slate-300 decoration-1 line-through">{formatCurrency(i.appraisalPrice)}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-[10px] text-slate-400">최저가 (현재)</p>
-                    <p className="text-lg font-black text-indigo-600">{formatCurrency(i.minPrice)}</p>
-                  </div>
-                  {/* 내가 예상 낙찰가를 적었다면 표시 */}
-                  {financials.expectedBidPrice && (
-                    <div className="col-span-2 bg-green-50 px-3 py-2 rounded-lg flex justify-between items-center mt-1">
-                         <span className="text-[10px] font-bold text-green-700">🎯 내 입찰 예정가</span>
-                         <span className="text-sm font-black text-green-800">{formatCurrency(financials.expectedBidPrice)}원</span>
-                    </div>
-                  )}
-                  <div className="col-span-2 flex justify-end mt-2">
-                       <span className={`text-xs font-bold px-2 py-0.5 rounded ${dday.bg} ${dday.color}`}>{dday.text}</span>
-                  </div>
+              <div className="flex justify-between items-end text-sm border-t border-slate-50 pt-4 mt-auto">
+                <div>
+                    <div className="text-xs text-slate-400 mb-0.5">감정가</div>
+                    <div className="font-bold text-slate-800">{formatCurrency(i.appraisalPrice)}</div>
+                </div>
+                <div className="text-right">
+                    <div className="text-xs text-slate-400 mb-0.5">입찰기일</div>
+                    <span className={`font-bold px-2 py-0.5 rounded ${dday.bg} ${dday.color}`}>{dday.text}</span>
+                </div>
               </div>
               
               <button 
